@@ -100,13 +100,18 @@ class CALENDAR:
 
     def __init__(self, row: pd.Series) -> None:
         self.uid: str = row['clndr_id']
-        self.base_clndr_id: str | None = optional_str(row['base_clndr_id'])
+        self.base_clndr_id: Optional[str] = optional_str(row['base_clndr_id'])
         self.data: str = row['clndr_data']
         self.is_default: bool = row['default_flag'] == 'Y'
-        self.last_chng_date: datetime | None = optional_date(row['last_chng_date'])
+        self.last_chng_date: Optional[datetime] = optional_date(row['last_chng_date'])
         self.name: str = row['clndr_name']
-        self.proj_id: str | None = optional_str(row['proj_id'])
+        self.proj_id: Optional[str] = optional_str(row['proj_id'])
         self.type: CALENDAR.CalendarType = CALENDAR.CalendarType[row['clndr_type']]
+        self.rsrc_private: bool = row['rsrc_private'] == 'Y'
+        self.day_hr_cnt: Optional[float] = optional_str(row['day_hr_cnt'])
+        self.week_hr_cnt: Optional[float] = optional_str(row['week_hr_cnt'])
+        self.year_hr_cnt: Optional[float] = optional_str(row['year_hr_cnt'])
+        self.month_hr_cnt: Optional[float] = optional_str(row['month_hr_cnt'])
 
     def __eq__(self, __o: "CALENDAR") -> bool:
         return self.name == __o.name and self.type == __o.type
@@ -223,7 +228,7 @@ class CALENDAR:
         }
 
     def _calc_work_hours(
-        self, date_to_calc: datetime, start_time: time, end_time: time
+            self, date_to_calc: datetime, start_time: time, end_time: time
     ) -> float:
         """
         Calculate the work hours for a given day based on a start time, end time,
@@ -278,7 +283,8 @@ class CALENDAR:
 
         return self.work_week[f"{clean_date:%A}"]
 
-def _process_calendar_data( calendar_df: pd.DataFrame) -> dict[str, CALENDAR]:
+
+def _process_calendar_data(calendar_df: pd.DataFrame) -> dict[str, CALENDAR]:
     calendar_dict = {}
     for _, row in calendar_df.iterrows():
         calendar = CALENDAR(row)
