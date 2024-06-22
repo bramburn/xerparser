@@ -2,27 +2,29 @@
 # taskpred.py
 
 from datetime import datetime
+import pandas as pd
+
 from xerparser.schemas.task import TASK
-from xerparser.src.validators import optional_int, optional_date, int_or_zero
+from xerparser.src.validators import optional_int, optional_date, int_or_zero, optional_str
 
 
 class TASKPRED:
     """
     A class to represent a relationship between two activities.
-
     """
 
-    def __init__(self, predecessor: TASK, successor: TASK, **data) -> None:
-        self.uid: str = data["task_pred_id"]
-        self.task_id: str = data["task_id"]
-        self.pred_task_id: str = data["pred_task_id"]
-        self.proj_id: str = data["proj_id"]
-        self.pred_proj_id: str = data["pred_proj_id"]
-        self.pred_type: str = data["pred_type"]
-        self.lag_hr_cnt: int = int_or_zero(data["lag_hr_cnt"])
-        self.float_path: int | None = optional_int(data["float_path"])
-        self.aref: datetime | None = optional_date(data["aref"])
-        self.arls: datetime | None = optional_date(data["arls"])
+    def __init__(self, row: pd.Series, predecessor: TASK, successor: TASK) -> None:
+        self.uid: str = row['task_pred_id']
+        self.task_id: str = row['task_id']
+        self.pred_task_id: str = row['pred_task_id']
+        self.proj_id: str = row['proj_id']
+        self.pred_proj_id: str = row['pred_proj_id']
+        self.pred_type: str = row['pred_type']
+        self.lag_hr_cnt: int = int_or_zero(row['lag_hr_cnt'])
+        self.float_path: int | None = optional_int(row['float_path'])
+        self.aref: datetime | None = optional_date(row['aref'])
+        self.arls: datetime | None = optional_date(row['arls'])
+        self.comments: str | None = optional_str(row['comments'])
         self.predecessor: TASK = predecessor
         self.successor: TASK = successor
 

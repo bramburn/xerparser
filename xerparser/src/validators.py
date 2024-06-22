@@ -3,38 +3,51 @@
 # Functions to validate data during object initialization
 
 from datetime import datetime
+from typing import Union
 
 date_format = "%Y-%m-%d %H:%M"
 
-def optional_date(value: str) -> datetime | None:
-    if value == "" or value is None:
+def optional_date(value: Union[str, None]) -> datetime | None:
+    if value is None or value == "":
         return None
-    return datetime.strptime(value, date_format)
+    try:
+        return datetime.strptime(value, date_format)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid date format: {value}")
 
-
-def optional_float(value: str) -> float | None:
-    if value == "" or value is None:
+def optional_float(value: Union[str, None]) -> float | None:
+    if value is None or value == "":
         return None
-    return float(value)
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid float value: {value}")
 
-
-def float_or_zero(value: str) -> float:
-    if value == "" or value is None:
+def float_or_zero(value: Union[str, None]) -> float:
+    if value is None or value == "":
         return 0.0
-    return float(value)
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid float value: {value}")
 
-
-def optional_int(value: str) -> int | None:
-    if value == "" or value is None:
+def optional_int(value: Union[str, None]) -> int | None:
+    if value is None or value == "":
         return None
-    return int(value)
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid integer value: {value}")
 
-
-def int_or_zero(value: str) -> int:
-    if value == "" or value is None:
+def int_or_zero(value: Union[str, None]) -> int:
+    if value is None or value == "":
         return 0
-    return int(value)
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        raise ValueError(f"Invalid integer value: {value}")
 
-
-def optional_str(value: str) -> str | None:
-    return (value, None)[value == ""]
+def optional_str(value: Union[str, None]) -> str | None:
+    if value is None or value == "":
+        return None
+    return value
