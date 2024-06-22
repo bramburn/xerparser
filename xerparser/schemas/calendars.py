@@ -1,7 +1,5 @@
-# xerparser
 # calendars.py
-
-
+import pandas as pd
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
@@ -100,16 +98,15 @@ class CALENDAR:
         CA_Rsrc = "Resource"
         CA_Project = "Project"
 
-    def __init__(self, **data: str) -> None:
-        self.uid: str = data["clndr_id"]
-        self.base_clndr_id: str | None = optional_str(data["base_clndr_id"])
-        self.data: str = data["clndr_data"]
-        self.is_default: bool = data["default_flag"] == "Y"
-        self.last_chng_date: datetime | None = optional_date(data["last_chng_date"])
-        self.name: str = data["clndr_name"]
-        self.proj_id: str | None = optional_str(data["proj_id"])
-        self.type: CALENDAR.CalendarType = CALENDAR.CalendarType[data["clndr_type"]]
-        self.base_calendar: Optional["CALENDAR"] = None
+    def __init__(self, row: pd.Series) -> None:
+        self.uid: str = row['clndr_id']
+        self.base_clndr_id: str | None = optional_str(row['base_clndr_id'])
+        self.data: str = row['clndr_data']
+        self.is_default: bool = row['default_flag'] == 'Y'
+        self.last_chng_date: datetime | None = optional_date(row['last_chng_date'])
+        self.name: str = row['clndr_name']
+        self.proj_id: str | None = optional_str(row['proj_id'])
+        self.type: CALENDAR.CalendarType = CALENDAR.CalendarType[row['clndr_type']]
 
     def __eq__(self, __o: "CALENDAR") -> bool:
         return self.name == __o.name and self.type == __o.type
@@ -170,12 +167,6 @@ class CALENDAR:
         _date = clean_date(date_to_check)
         if _date in self.holidays:
             return False
-        if (
-            not self.holidays
-            and self.base_calendar
-            and _date in self.base_calendar.holidays
-        ):
-            return False
         if _date in self.work_exceptions.keys():
             return True
         return bool(self.work_week[f"{date_to_check:%A}"])
@@ -191,12 +182,6 @@ class CALENDAR:
         check_date = min(cl_dates)
         while check_date <= max(cl_dates):
             if self.holidays and check_date in self.holidays:
-                yield check_date
-            if (
-                not self.holidays
-                and self.base_calendar
-                and check_date in self.base_calendar.holidays
-            ):
                 yield check_date
             check_date += timedelta(days=1)
 
@@ -293,6 +278,12 @@ class CALENDAR:
 
         return self.work_week[f"{clean_date:%A}"]
 
+def _process_calendar_data( calendar_df: pd.DataFrame) -> dict[str, CALENDAR]:
+    calendar_dict = {}
+    for _, row in calendar_df.iterrows():
+        calendar = CALENDAR(row)
+        calendar_dict[calendar.uid] = calendar
+    return calendar_dict
 
 def _parse_clndr_data(clndr_data: str, reg_ex) -> list:
     """
