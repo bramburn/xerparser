@@ -9,8 +9,10 @@ keywords = ["primavera", "p6", "xer", "schedule", "scheduling", "planning", "pro
 repository = "https://github.com/jjCode01/xerparser"
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.10"
 html-sanitizer = "^2.2.0"
+numpy = "^2.0.0"
+pandas = "^2.2.2"
 
 [tool.poetry.group.test.dependencies]
 tqdm = "^4.64.1"
