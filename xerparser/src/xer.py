@@ -5,12 +5,14 @@ from itertools import groupby
 from pathlib import Path
 from typing import Any, BinaryIO
 
+import pandas as pd
+
 from xerparser.schemas import TABLE_UID_MAP
 from xerparser.schemas._node import build_tree
-from xerparser.schemas.account import ACCOUNT
+from xerparser.schemas.account import ACCOUNT, _process_account_data
 from xerparser.schemas.actvcode import ACTVCODE
-from xerparser.schemas.actvtype import ACTVTYPE
-from xerparser.schemas.calendars import CALENDAR
+from xerparser.schemas.actvtype import ACTVTYPE, _process_actvcode_data, _process_actvtype_data
+from xerparser.schemas.calendars import CALENDAR, _process_calendar_data
 from xerparser.schemas.ermhdr import ERMHDR
 from xerparser.schemas.findates import FINDATES
 from xerparser.schemas.memotype import MEMOTYPE
@@ -30,6 +32,16 @@ from xerparser.schemas.trsrcfin import TRSRCFIN
 from xerparser.schemas.udftype import UDFTYPE
 from xerparser.src.errors import CorruptXerFile, find_xer_errors
 from xerparser.src.parser import CODEC, file_reader, parser
+import logging
+
+logging.basicConfig(
+    filename='xer_parser.log',
+    level=logging.WARNING,
+    format='%(asctime)s %(levelname)s: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+
+logger = logging.getLogger(__name__)
 
 
 class Xer:
@@ -41,39 +53,74 @@ class Xer:
     CODEC = CODEC
 
     def __init__(self, xer_file_contents: str) -> None:
-        self.tables: dict[str, list] = parser(xer_file_contents)
+        self.tables = self._parse_xer_data(xer_file_contents)
+        self._process_data()
+
+    def _parse_xer_data(self, xer_file_contents: str) -> dict[str, list]:
+        """Parse the XER file contents and return the table data."""
         if errors := find_xer_errors(self.tables):
             raise CorruptXerFile(errors)
-        self.export_info = ERMHDR(*self.tables["ERMHDR"])
-        self.accounts: dict[str, ACCOUNT] = build_tree(self._get_attr("ACCOUNT"))
-        self.activity_code_types: dict[str, ACTVTYPE] = self._get_attr("ACTVTYPE")
-        self.activity_code_values: dict[str, ACTVCODE] = build_tree(
-            self._get_activity_codes()
-        )
-        self.calendars: dict[str, CALENDAR] = self._get_attr("CALENDAR")
+        return parser(xer_file_contents)
 
-        for cal in self.calendars.values():
-            if cal.base_clndr_id:
-                cal.base_calendar = self.calendars.get(cal.base_clndr_id)
+    def _process_data(self) -> None:
 
-        self.financial_periods: dict[str, FINDATES] = self._get_attr("FINDATES")
-        self.notebook_topics: dict[str, MEMOTYPE] = self._get_attr("MEMOTYPE")
-        self.project_code_types: dict[str, PCATTYPE] = self._get_attr("PCATTYPE")
-        self.project_code_values: dict[str, PCATVAL] = build_tree(
-            self._get_proj_codes()
-        )
-        self.resources: dict[str, RSRC] = build_tree(self._get_attr("RSRC"))
-        self.resource_rates: dict[str, RSRCRATE] = self._get_rsrc_rates()
-        self.sched_options: dict[str, SCHEDOPTIONS] = self._get_attr("SCHEDOPTIONS")
-        self.udf_types: dict[str, UDFTYPE] = self._get_attr("UDFTYPE")
-        self.projects = self._get_projects()
-        self.wbs_nodes: dict[str, PROJWBS] = self._get_wbs_nodes()
-        self.tasks: dict[str, TASK] = self._get_tasks()
-        self.relationships: dict[str, TASKPRED] = self._get_relationships()
+        # todo: add types
 
+        # First pass: Process ACTVTYPE data
+        for table_name, table_data in self.tables.items():
+            if table_name == 'ACTVTYPE':
+                self.activity_code_types = self._process_actvtype_data(pd.DataFrame(table_data))
+
+        # Second pass: Process ACTVCODE data
+        for table_name, table_data in self.tables.items():
+            if table_name == 'ACTVCODE':
+                self.activity_code_values = self._process_actvcode_data(pd.DataFrame(table_data),
+                                                                        self.activity_code_types)
+            elif table_name == 'CALENDAR':
+                self.calendars = self._process_calendar_data(pd.DataFrame(table_data), self.projects, self.resources)
+
+        # Process other tables
+        for table_name, table_data in self.tables.items():
+            if table_name == 'ACCOUNT':
+                self.accounts = self._process_account_data(pd.DataFrame(table_data))
+            elif table_name == 'CALENDAR':
+                self.calendars = self._process_calendar_data(pd.DataFrame(table_data))
+            elif table_name == 'FINDATES':
+                self.financial_periods = self._process_findates_data(pd.DataFrame(table_data))
+            elif table_name == 'MEMOTYPE':
+                self.notebook_topics = self._process_memotype_data(pd.DataFrame(table_data))
+            elif table_name == 'PCATTYPE':
+                self.project_code_types = self._process_pcattype_data(pd.DataFrame(table_data))
+            elif table_name == 'PCATVAL':
+                self.project_code_values = self._process_pcatval_data(pd.DataFrame(table_data), self.project_code_types)
+            elif table_name == 'PROJECT':
+                self.projects = self._process_project_data(pd.DataFrame(table_data), self.calendars, self.sched_options)
+            elif table_name == 'RSRC':
+                self.resources = self._process_rsrc_data(pd.DataFrame(table_data))
+            elif table_name == 'RSRCRATE':
+                self.resource_rates = self._process_rsrcrate_data(pd.DataFrame(table_data), self.resources)
+            elif table_name == 'SCHEDOPTIONS':
+                self.sched_options = self._process_schedoptions_data(pd.DataFrame(table_data))
+            elif table_name == 'TASK':
+                self.tasks = self._process_task_data(pd.DataFrame(table_data), self.calendars, self.wbs_nodes)
+            elif table_name == 'TASKPRED':
+                self.relationships = self._process_taskpred_data(pd.DataFrame(table_data), self.tasks)
+            elif table_name == 'PROJWBS':
+                self.wbs_nodes = self._process_projwbs_data(pd.DataFrame(table_data), self.projects)
+            elif table_name == 'UDFTYPE':
+                self.udf_types = self._process_udftype_data(pd.DataFrame(table_data))
+            elif table_name == 'TASKRSRC':
+                self._process_taskrsrc_data(pd.DataFrame(table_data), self.resources, self.tasks, self.projects)
+            elif table_name == 'TASKFIN':
+                self._process_taskfin_data(pd.DataFrame(table_data), self.tasks, self.financial_periods)
+            elif table_name == 'TRSRCFIN':
+                self._process_trsrcfin_data(pd.DataFrame(table_data), self.tasks, self.financial_periods)
+
+        # Set up additional relationships and data
         self._set_proj_activity_codes()
         self._set_proj_codes()
-        self._set_proj_calendars()
+    #    self._set_proj_calendars() do not set relationships
+
         self._set_task_actv_codes()
         self._set_task_memos()
         self._set_task_resources()
@@ -103,11 +150,17 @@ class Xer:
         }
         return activity_code_values
 
-    def _get_attr(self, table_name: str) -> dict:
+    def _get_attr(self, table_name: str) -> pd.DataFrame:
         if table := self.tables.get(table_name):
-            row_id = TABLE_UID_MAP[table_name]
-            return {row[row_id]: eval(table_name)(**row) for row in table}
-        return {}
+            # Convert the list of dictionaries to a DataFrame
+            df = pd.DataFrame(table)
+
+            # Add any DataFrame-specific processing here
+            # For example, converting columns to the correct data types
+            df = self._process_dataframe(df, table_name)
+
+            return df
+        return pd.DataFrame()
 
     def _get_projects(self) -> dict[str, PROJECT]:
         projects = {
@@ -267,6 +320,34 @@ class Xer:
         self.tasks[rsrc_fin.task_id].resources[rsrc_fin.taskrsrc_id].periods.append(
             rsrc_fin
         )
+
+    def _process_dataframe(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
+        # Preprocess the DataFrame using pandas and NumPy
+        if table_name == 'FINDATES':
+            df['start_date'] = pd.to_datetime(df['start_date'])
+            df['end_date'] = pd.to_datetime(df['end_date'])
+        elif table_name == 'ACCOUNT':
+            df['acct_id'] = df['acct_id'].astype(str)
+            df['parent_acct_id'] = df['parent_acct_id'].astype(str)
+            self.accounts = _process_account_data(df)
+        elif table_name == 'ACTVTYPE':
+            df['actv_code_type_id'] = df['actv_code_type_id'].astype(str)
+            df['proj_id'] = df['proj_id'].astype(str)
+            df['actv_short_len'] = df['actv_short_len'].astype(int)
+            df['seq_num'] = df['seq_num'].fillna(-1).astype(int)
+            self.activity_code_types = _process_actvtype_data(df)
+        elif table_name == 'ACTVCODE':
+            df['actv_code_id'] = df['actv_code_id'].astype(str)
+            df['actv_code_type_id'] = df['actv_code_type_id'].astype(str)
+            df['parent_actv_code_id'] = df['parent_actv_code_id'].astype(str)
+            self.activity_code_values = _process_actvcode_data(df)
+        elif table_name == 'CALENDAR':
+            df['clndr_id'] = df['clndr_id'].astype(str)
+            df['proj_id'] = df['proj_id'].astype(str)
+            self.calendars = _process_calendar_data(df)
+
+        # add relationships after
+        return df
 
 
 def proj_key(obj: Any) -> str:
