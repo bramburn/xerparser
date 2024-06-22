@@ -1,6 +1,6 @@
 # xerparser
 # parser.py
-
+from xerparser.src.table_data import table_data
 from pathlib import Path
 from typing import BinaryIO
 
@@ -30,6 +30,24 @@ def file_reader(file: str | Path | BinaryIO) -> str:
     return file_contents
 
 
+def validate_dependencies(data: dict[str, list]) -> bool:
+    missing_tables = []
+
+    for table, info in table_data.items():
+        for dep in info['depends']:
+            if dep not in data:
+                missing_tables.append((table, dep))
+
+    if missing_tables:
+        print("The following tables have missing dependencies:")
+        for table, dep in missing_tables:
+            print(f"{table} depends on {dep}, but {dep} is not defined.")
+        return False
+    else:
+        print("All tables have their dependencies defined.")
+        return True
+
+
 def parser(xer_contents: str) -> dict[str, list]:
     """
     Parses the contents of a P6 .xer file and converts it into a
@@ -39,7 +57,7 @@ def parser(xer_contents: str) -> dict[str, list]:
         xer_contents (str): .xer file contents
 
     Returns:
-        dict: xer information and data tables
+        dict[str, list]: xer information and data tables
     """
     if not isinstance(xer_contents, str):
         raise TypeError(
@@ -55,9 +73,16 @@ def parser(xer_contents: str) -> dict[str, list]:
 
     # The first row in the xer file includes file export information
     xer_data["ERMHDR"] = tables.pop(0).strip().split("\t")[1:]
-    xer_data.update(
-        **{name: rows for table in tables for name, rows in _parse_table(table).items()}
-    )
+
+    for table in tables:
+        table_name = table.split("\n")[0].strip()
+        if table_name in table_data:
+            xer_data.update(_parse_table(table))
+        else:
+            pass
+
+    # Validate dependencies after parsing is complete
+    validate_dependencies(xer_data)
 
     return xer_data
 
