@@ -4,7 +4,7 @@
 from datetime import datetime
 from enum import Enum
 from functools import cached_property
-from typing import Any
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -104,81 +104,67 @@ class TASK:
 
     def __init__(self, row: pd.Series, calendar: CALENDAR, wbs: PROJWBS) -> None:
         self.uid: str = row['task_id']
-        """Unique Table ID"""
-
-        # Foreign keys
         self.proj_id: str = row['proj_id']
         self.wbs_id: str = row['wbs_id']
         self.clndr_id: str = row['clndr_id']
-
-        # General Task info
-        self.phys_complete_pct: float = row['phys_complete_pct']
-        """Activity physical percent complete"""
-        self.complete_pct_type: str = row['complete_pct_type']
-        """Activity percent complete type: duration, physical, or units"""
-        self.type: TASK.TaskType = TASK.TaskType[row['task_type']]
-        """
-        Activity type:
-            Task, Start Milestone, Finish Milestone, Level of Effort, 
-            WBS Summary, or Resource Dependent"""
-        self.status: TASK.TaskStatus = TASK.TaskStatus[row['status_code']]
-        self.task_code: str = row['task_code']
-        """Activity ID"""
-        self.name: str = row['task_name']
-        """Activity Name"""
-
-        # Durations and float
-        self.duration_type: str = row['duration_type']
-        self.total_float_hr_cnt: float | None = optional_float(
-            row['total_float_hr_cnt']
-        )
-        self.free_float_hr_cnt: float | None = optional_float(row['free_float_hr_cnt'])
-        self.remain_drtn_hr_cnt: float = row['remain_drtn_hr_cnt']
-        self.target_drtn_hr_cnt: float = row['target_drtn_hr_cnt']
-        self.float_path: int | None = optional_int(row['float_path'])
-        self.float_path_order: int | None = optional_int(row['float_path_order'])
-        self.is_longest_path: bool = row['driving_path_flag'] == 'Y'
-
-        # Dates
-        self.act_start_date: datetime | None = optional_date(row['act_start_date'])
-        self.act_end_date: datetime | None = optional_date(row['act_end_date'])
-        self.late_start_date: datetime | None = optional_date(row['late_start_date'])
-        self.late_end_date: datetime | None = optional_date(row['late_end_date'])
-        self.expect_end_date: datetime | None = optional_date(row['expect_end_date'])
-        self.early_start_date: datetime | None = optional_date(row['early_start_date'])
-        self.early_end_date: datetime | None = optional_date(row['early_end_date'])
-        self.rem_late_start_date: datetime | None = optional_date(
-            row['rem_late_start_date']
-        )
-        self.rem_late_end_date: datetime | None = optional_date(
-            row['rem_late_end_date']
-        )
-        self.restart_date: datetime | None = optional_date(row['restart_date'])
-        self.reend_date: datetime | None = optional_date(row['reend_date'])
-        self.target_start_date: datetime = datetime.strptime(
-            row['target_start_date'], date_format
-        )
-        self.target_end_date: datetime = datetime.strptime(
-            row['target_end_date'], date_format
-        )
-        self.suspend_date: datetime | None = optional_date(row['suspend_date'])
-        self.resume_date: datetime | None = optional_date(row['resume_date'])
-        self.create_date: datetime = datetime.strptime(row['create_date'], date_format)
-        self.update_date: datetime = datetime.strptime(row['update_date'], date_format)
-
-        # Constraints
-        self.cstr_date: datetime | None = optional_date(row['cstr_date'])
-        self.cstr_type: str | None = optional_str(row['cstr_type'])
-        self.cstr_date2: datetime | None = optional_date(row['cstr_date2'])
-        self.cstr_type2: str | None = optional_str(row['cstr_type2'])
-
-        # Unit quantities
-        self.target_work_qty: float = float_or_zero(row['target_work_qty'])
-        self.act_work_qty: float = float_or_zero(row['act_work_qty'])
-        self.target_equip_qty: float = float_or_zero(row['target_equip_qty'])
+        self.act_end_date: Optional[datetime] = optional_date(row['act_end_date'])
         self.act_equip_qty: float = float_or_zero(row['act_equip_qty'])
-        self.act_this_per_work_qty: float = float_or_zero(row['act_this_per_work_qty'])
+        self.act_start_date: Optional[datetime] = optional_date(row['act_start_date'])
         self.act_this_per_equip_qty: float = float_or_zero(row['act_this_per_equip_qty'])
+        self.act_this_per_work_qty: float = float_or_zero(row['act_this_per_work_qty'])
+        self.act_work_qty: float = float_or_zero(row['act_work_qty'])
+        self.auto_compute_act_flag: bool = row['auto_compute_act_flag'] == 'Y'
+        self.complete_pct_type: str = row['complete_pct_type']
+        self.create_date: datetime = datetime.strptime(row['create_date'], date_format)
+        self.create_user: str = row['create_user']
+        self.cstr_date: Optional[datetime] = optional_date(row['cstr_date'])
+        self.cstr_date2: Optional[datetime] = optional_date(row['cstr_date2'])
+        self.cstr_type: Optional[str] = optional_str(row['cstr_type'])
+        self.cstr_type2: Optional[str] = optional_str(row['cstr_type2'])
+        self.driving_path_flag: bool = row['driving_path_flag'] == 'Y'
+        self.duration_type: str = row['duration_type']
+        self.early_end_date: Optional[datetime] = optional_date(row['early_end_date'])
+        self.early_start_date: Optional[datetime] = optional_date(row['early_start_date'])
+        self.est_wt: Optional[float] = optional_float(row['est_wt'])
+        self.expect_end_date: Optional[datetime] = optional_date(row['expect_end_date'])
+        self.external_early_start_date: Optional[datetime] = optional_date(row['external_early_start_date'])
+        self.external_late_end_date: Optional[datetime] = optional_date(row['external_late_end_date'])
+        self.float_path: Optional[int] = optional_int(row['float_path'])
+        self.float_path_order: Optional[int] = optional_int(row['float_path_order'])
+        self.free_float_hr_cnt: Optional[float] = optional_float(row['free_float_hr_cnt'])
+        self.guid: str = row['guid']
+        self.late_end_date: Optional[datetime] = optional_date(row['late_end_date'])
+        self.late_start_date: Optional[datetime] = optional_date(row['late_start_date'])
+        self.location_id: Optional[str] = optional_str(row['location_id'])
+        self.lock_plan_flag: bool = row['lock_plan_flag'] == 'Y'
+        self.phys_complete_pct: float = row['phys_complete_pct']
+        self.priority_type: Optional[str] = optional_str(row['priority_type'])
+        self.reend_date: Optional[datetime] = optional_date(row['reend_date'])
+        self.rem_late_end_date: Optional[datetime] = optional_date(row['rem_late_end_date'])
+        self.rem_late_start_date: Optional[datetime] = optional_date(row['rem_late_start_date'])
+        self.remain_drtn_hr_cnt: float = row['remain_drtn_hr_cnt']
+        self.remain_equip_qty: float = float_or_zero(row['remain_equip_qty'])
+        self.remain_work_qty: float = float_or_zero(row['remain_work_qty'])
+        self.restart_date: Optional[datetime] = optional_date(row['restart_date'])
+        self.resume_date: Optional[datetime] = optional_date(row['resume_date'])
+        self.rev_fdbk_flag: bool = row['rev_fdbk_flag'] == 'Y'
+        self.review_end_date: Optional[datetime] = optional_date(row['review_end_date'])
+        self.review_type: Optional[str] = optional_str(row['review_type'])
+        self.rsrc_id: Optional[str] = optional_str(row['rsrc_id'])
+        self.status_code: str = row['status_code']
+        self.suspend_date: Optional[datetime] = optional_date(row['suspend_date'])
+        self.target_drtn_hr_cnt: float = row['target_drtn_hr_cnt']
+        self.target_end_date: datetime = datetime.strptime(row['target_end_date'], date_format)
+        self.target_equip_qty: float = float_or_zero(row['target_equip_qty'])
+        self.target_start_date: datetime = datetime.strptime(row['target_start_date'], date_format)
+        self.target_work_qty: float = float_or_zero(row['target_work_qty'])
+        self.task_code: str = row['task_code']
+        self.task_name: str = row['task_name']
+        self.task_type: TASK.TaskType = TASK.TaskType[row['task_type']]
+        self.tmpl_guid: str = row['tmpl_guid']
+        self.total_float_hr_cnt: Optional[float] = optional_float(row['total_float_hr_cnt'])
+        self.update_date: datetime = datetime.strptime(row['update_date'], date_format)
+        self.update_user: str = row['update_user']
 
         self.activity_codes: dict[ACTVTYPE, ACTVCODE] = {}
         self.user_defined_fields: dict[UDFTYPE, Any] = {}
@@ -187,22 +173,6 @@ class TASK:
         self.predecessors: list["LinkToTask"] = []
         self.successors: list["LinkToTask"] = []
         self.periods: list[TASKFIN] = []
-        self.auto_compute_act_flag: bool = row['auto_compute_act_flag'] == 'Y'
-        self.rev_fdbk_flag: bool = row['rev_fdbk_flag'] == 'Y'
-        self.est_wt: float | None = optional_float(row['est_wt'])
-        self.review_type: str | None = optional_str(row['review_type'])
-        self.review_end_date: datetime | None = optional_date(row['review_end_date'])
-        self.external_early_start_date: datetime | None = optional_date(
-            row['external_early_start_date']
-        )
-        self.external_late_end_date: datetime | None = optional_date(
-            row['external_late_end_date']
-        )
-        self.location_id: str | None = optional_str(row['location_id'])
-        self.lock_plan_flag: bool = row['lock_plan_flag'] == 'Y'
-        self.priority_type: str | None = optional_str(row['priority_type'])
-        self.guid: str = row['guid']
-        self.tmpl_guid: str = row['tmpl_guid']
 
     def __eq__(self, __o: "TASK") -> bool:
         return self.task_code == __o.task_code
@@ -434,6 +404,7 @@ class TASK:
         )
 
         return rem_hrs
+
     @property
     def start(self) -> datetime:
         """Calculated activity start date (Actual Start or Early Start)"""
