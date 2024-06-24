@@ -1,8 +1,9 @@
+from datetime import datetime
+
 import numpy as np
-from datetime import datetime, timedelta
 import pandas as pd
 
-from local.critical_path_class import CriticalPathCalculator
+from local.critical_path_analyser import CriticalPathAnalyzer
 from xerparser import Xer
 
 date_format = "%Y-%m-%d %H:%M"
@@ -75,32 +76,43 @@ def main():
 
         taskpred_df = xer.taskpred_df[['pred_task_id', 'task_id', 'lag_days', 'pred_type']]  # Add 'pred_type' column
 
-        # Create an instance of the CriticalPathCalculator and run the calculations
-        cpc = CriticalPathCalculator(tasks_df, taskpred_df)
-        critical_tasks, critical_relationships, total_critical_path_duration = cpc.run()
+        # # Create an instance of the CriticalPathCalculator and run the calculations
+        # cpc = CriticalPathCalculator(tasks_df, taskpred_df)
+        # critical_tasks, critical_relationships, total_duration, num_critical_paths, critical_paths_info = cpc.run()
+        #
+        # print(f"Number of critical paths: {num_critical_paths}")
+        # for i, path_info in enumerate(critical_paths_info, 1):
+        #     print(f"Critical Path {i}: {' -> '.join(path_info['path'])} (Length: {path_info['length']})")
+        #
+        # print("\nCritical Tasks:")
+        # print(critical_tasks)
+        #
+        # print("\nCritical Relationships:")
+        # print(critical_relationships)
+        #
+        # print(f"\nTotal Critical Path Duration: {total_duration:.2f} hours")
 
-        # Print the critical path tasks
-        print("Critical Path Tasks:")
-        for _, task in critical_tasks.iterrows():
-            print(f"Task: {task['task_code']} - {task['task_name']}")
-            print(f"  Project: {task['proj_id']}")
-            print(f"  Duration: {task['duration']} days")
-            print(f"  Early Start: {task['early_start']:.2f}, Early Finish: {task['early_finish']:.2f}")
-            print(f"  Late Start: {task['late_start']:.2f}, Late Finish: {task['late_finish']:.2f}")
-            print()
+        # Assuming you have tasks_df and taskpred_df ready
 
-        # Print the critical path relationships
-        print("Critical Path Relationships:")
-        print(critical_relationships)
-        for _, rel in critical_relationships.iterrows():
-            from_task = critical_tasks[critical_tasks['task_id'] == rel['from_task']].iloc[0]
-            to_task = critical_tasks[critical_tasks['task_id'] == rel['to_task']].iloc[0]
-            print(f"From: {from_task['task_code']} - {from_task['task_name']}")
-            print(f"To: {to_task['task_code']} - {to_task['task_name']}")
-            print(f"  Relationship: {rel['relationship']}, Lag: {rel['lag']} days")
-            print()
+        analyzer = CriticalPathAnalyzer(tasks_df, taskpred_df)
+        critical_paths, total_float, project_duration = analyzer.analyze()
 
-        print(f"Total Critical Path Duration: {total_critical_path_duration:.2f} hours")
+        print(f"Project Duration: {project_duration:.2f} days")
+
+        analyzer.print_multiple_start_end_info()
+        analyzer.print_subgraph_info()
+        analyzer.print_detailed_critical_path_analysis()
+
+        # Print the top 10 most critical tasks
+        analyzer.print_most_critical_tasks(top_n=10)
+
+        # Get the DataFrame of most critical tasks for further analysis
+        most_critical_tasks_df = analyzer.identify_most_critical_tasks(top_n=20)
+
+        # You can now use this DataFrame for additional analysis or visualization
+        print("\nDetailed view of top 20 most critical tasks:")
+        print(most_critical_tasks_df)
+
 
         # filter the dataframe based on the start and end date
         filtered_tasks = xer.task_df[

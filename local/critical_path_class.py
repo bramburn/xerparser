@@ -84,21 +84,20 @@ class CriticalPathCalculator:
 
             late_start[node] = min(late_start[node], late_finish[node] - duration)
 
-        # Identify critical path
-        critical_path = []
-        current = max(late_finish, key=late_finish.get)
-        while current is not None:
-            critical_path.append(current)
-            predecessors = list(self.G.predecessors(current))
-            current = None
-            for pred in predecessors:
-                if early_start[pred] == late_start[pred]:
-                    current = pred
-                    break
-        critical_path.reverse()
+        # Identify all critical paths
+        critical_tasks = [node for node in self.G.nodes() if abs(early_start[node] - late_start[node]) < 1e-6]
 
-        return critical_path, project_end, early_start, early_finish, late_start, late_finish
+        # Find all critical paths
+        start_nodes = [node for node in critical_tasks if self.G.in_degree(node) == 0]
+        end_nodes = [node for node in critical_tasks if self.G.out_degree(node) == 0]
 
+        all_critical_paths = []
+        for start in start_nodes:
+            for end in end_nodes:
+                paths = list(nx.all_simple_paths(self.G.subgraph(critical_tasks), start, end))
+                all_critical_paths.extend(paths)
+
+        return all_critical_paths, project_end, early_start, early_finish, late_start, late_finish, critical_tasks
     def get_critical_path_relationships(self, critical_path):
         relationships = []
         for i, curr_task in enumerate(critical_path):
@@ -157,23 +156,15 @@ class CriticalPathCalculator:
             if not self.G.has_edge(critical_path[i], critical_path[i + 1]):
                 print(f"Warning: No direct link between {critical_path[i]} and {critical_path[i + 1]}")
 
-
     def run(self):
         self.build_graph()
-        critical_path, total_duration, early_start, early_finish, late_start, late_finish = self.calculate_critical_path()
+        all_critical_paths, total_duration, early_start, early_finish, late_start, late_finish, critical_tasks = self.calculate_critical_path()
 
-        self.validate_critical_path(critical_path, early_start, late_start)
-        self.validate_path_duration(critical_path)
-        self.validate_path_continuity(critical_path)
-        all_critical_paths = self.find_all_critical_paths(early_start, late_start)
-        if len(all_critical_paths) > 1:
-            print(f"Found {len(all_critical_paths)} critical paths")
+        # Create a DataFrame with all critical tasks
+        critical_tasks_df = self.tasks_df[self.tasks_df['task_id'].isin(critical_tasks)].copy()
 
-        # Ensure all tasks in the critical path are included
-        critical_tasks_df = self.tasks_df[self.tasks_df['task_id'].isin(critical_path)].copy()
-
-        # If some tasks are missing, it might be due to temporary nodes. Let's add them manually.
-        missing_tasks = set(critical_path) - set(critical_tasks_df['task_id'])
+        # Add any missing tasks (e.g., temporary nodes)
+        missing_tasks = set(critical_tasks) - set(critical_tasks_df['task_id'])
         for task_id in missing_tasks:
             temp_task = pd.DataFrame({
                 'task_id': [task_id],
@@ -184,14 +175,18 @@ class CriticalPathCalculator:
             })
             critical_tasks_df = pd.concat([critical_tasks_df, temp_task], ignore_index=True)
 
-        critical_tasks_df['order'] = critical_tasks_df['task_id'].map({task: i for i, task in enumerate(critical_path)})
-        critical_tasks_df = critical_tasks_df.sort_values('order')
-
+        # Add timing information
         critical_tasks_df['early_start'] = critical_tasks_df['task_id'].map(early_start)
         critical_tasks_df['early_finish'] = critical_tasks_df['task_id'].map(early_finish)
         critical_tasks_df['late_start'] = critical_tasks_df['task_id'].map(late_start)
         critical_tasks_df['late_finish'] = critical_tasks_df['task_id'].map(late_finish)
 
-        critical_relationships_df = self.get_critical_path_relationships(critical_path)
+        # Get relationships for all critical tasks
+        critical_relationships_df = self.get_critical_path_relationships(critical_tasks)
 
-        return critical_tasks_df, critical_relationships_df, total_duration * 8  # Convert days back to hours
+        # Information about multiple critical paths
+        num_critical_paths = len(all_critical_paths)
+        critical_paths_info = [{'path': [str(task) for task in path], 'length': len(path)} for path in
+                               all_critical_paths]
+
+        return critical_tasks_df, critical_relationships_df, total_duration * 8, num_critical_paths, critical_paths_info

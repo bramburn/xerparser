@@ -1,8 +1,6 @@
-# xerparser
-# xer.py
-
 from pathlib import Path
 from typing import BinaryIO
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -21,11 +19,15 @@ class Xer:
     CODEC = CODEC
 
     def __init__(self, xer_file_contents: str) -> None:
-        self.project_df, self.task_df, self.taskpred_df, self.projwbs_df, self.calendar_df, self.account_df = self._parse_xer_data(
-            xer_file_contents)
+        self.tables = self._parse_xer_data(xer_file_contents)
+        self.project_df = self.tables.get('PROJECT', None)
+        self.task_df = self.tables.get('TASK', None)
+        self.taskpred_df = self.tables.get('TASKPRED', None)
+        self.projwbs_df = self.tables.get('PROJWBS', None)
+        self.calendar_df = self.tables.get('CALENDAR', None)
+        self.account_df = self.tables.get('ACCOUNT', None)
 
-    def _parse_xer_data(self, xer_file_contents: str) -> tuple[
-        pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    def _parse_xer_data(self, xer_file_contents: str) -> dict[str, pd.DataFrame]:
         """Parse the XER file contents and return the table data as DataFrames."""
         if xer_file_contents.startswith("ERMHDR"):
             xer_data = parser(xer_file_contents)
@@ -46,17 +48,9 @@ class Xer:
 
             task_pred = xer_data.get('TASKPRED', None)
             if task_pred is not None:
-                task_pred['lag_days'] = task_pred.apply(calculate_lag_days,axis=1)
+                task_pred['lag_days'] = task_pred.apply(calculate_lag_days, axis=1)
 
-
-            return (
-                xer_data.get('PROJECT', None),
-                tasks,
-                task_pred,
-                xer_data.get('PROJWBS', None),
-                xer_data.get('CALENDAR', None),
-                xer_data.get('ACCOUNT', None)
-            )
+            return xer_data
         else:
             raise ValueError("ValueError: invalid XER file")
 
@@ -73,16 +67,34 @@ class Xer:
         file_contents = file_reader(file)
         return cls(file_contents)
 
+    def update_last_recalc_date(self, split_date: datetime) -> None:
+        """
+        Update the project's last_recalc_date field to the split_date.
 
-def generate_xer_contents(xer: Xer) -> str:
-    """Generate the updated XER file contents from the modified DataFrames."""
-    xer_contents = "ERMHDR\t" + "\t".join([str(x) for x in xer.tables['ERMHDR'].iloc[0]]) + "\n"
+        Args:
+            split_date (datetime): The date to set as the new last_recalc_date
+        """
+        if self.project_df is not None and 'last_recalc_date' in self.project_df.columns:
+            self.project_df['last_recalc_date'] = split_date.strftime('%Y-%m-%d %H:%M')
 
-    for table_name, df in xer.tables.items():
-        if table_name != 'ERMHDR':
-            xer_contents += f"%T\t{table_name}\n"
-            xer_contents += "\t".join(df.columns) + "\n"
-            for _, row in df.iterrows():
-                xer_contents += "\t".join([str(x) for x in row]) + "\n"
+    def generate_xer_contents(self) -> str:
+        """Generate the updated XER file contents from the modified DataFrames."""
+        xer_contents = "ERMHDR\t" + "\t".join([str(x) for x in self.tables['ERMHDR'].iloc[0]]) + "\n"
 
-    return xer_contents
+        for table_name, df in self.tables.items():
+            if table_name != 'ERMHDR':
+                xer_contents += f"%T\t{table_name}\n"
+                xer_contents += "%F\t" + "\t".join(df.columns) + "\n"
+                for _, row in df.iterrows():
+                    xer_contents += "%R\t" + "\t".join([self._format_value(x) for x in row]) + "\n"
+
+        return xer_contents
+
+    def _format_value(self, value):
+        """Format values for XER output, handling datetime objects."""
+        if pd.isna(value):
+            return ""
+        elif isinstance(value, pd.Timestamp):
+            return value.strftime('%Y-%m-%d %H:%M')
+        else:
+            return str(value)
