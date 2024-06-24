@@ -69,10 +69,11 @@ def main():
 
         # Extract the tasks and taskpred information
         tasks_df = xer.task_df[
-            ['task_code', 'task_name', 'proj_id', 'target_drtn_hr_cnt', 'duration', 'progress', 'remaining_days']]
-        tasks_df['task_id'] = tasks_df.index  # Assuming task_id is the index
+            ['act_start_date', 'act_end_date', 'task_code', 'task_name', 'proj_id', 'target_drtn_hr_cnt', 'duration',
+             'progress', 'remaining_days', 'early_start', 'early_finish', 'late_start', 'late_finish']]
+        tasks_df.loc[:, 'task_id'] = tasks_df.index  # Assuming task_id is the index
 
-        taskpred_df = xer.taskpred_df[['pred_task_id', 'task_id', 'lag_days']]
+        taskpred_df = xer.taskpred_df[['pred_task_id', 'task_id', 'lag_days', 'pred_type']]  # Add 'pred_type' column
 
         # Create an instance of the CriticalPathCalculator and run the calculations
         cpc = CriticalPathCalculator(tasks_df, taskpred_df)
@@ -81,7 +82,7 @@ def main():
         # Print the critical path and its total duration
         print("Critical Path Tasks:")
         print(critical_tasks[['task_id', 'task_name', 'proj_id', 'duration']])
-        print(f"Total Critical Path Duration: {total_critical_path_duration / 8:.2f} days")
+        print(f"Total Critical Path Duration: {total_critical_path_duration:.2f} hours")
 
         # filter the dataframe based on the start and end date
         filtered_tasks = xer.task_df[

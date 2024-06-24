@@ -39,6 +39,10 @@ class Xer:
                 tasks['progress'] = tasks.apply(calculate_completion, axis=1)
                 tasks['duration'] = tasks.apply(calculate_duration, axis=1)
                 tasks['remaining_days'] = tasks.apply(calculate_remaining_days, axis=1)
+                tasks['early_start'] = np.nan
+                tasks['early_finish'] = np.nan
+                tasks['late_start'] = np.nan
+                tasks['late_finish'] = np.nan
 
             task_pred = xer_data.get('TASKPRED', None)
             if task_pred is not None:
