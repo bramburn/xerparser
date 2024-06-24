@@ -77,11 +77,29 @@ def main():
 
         # Create an instance of the CriticalPathCalculator and run the calculations
         cpc = CriticalPathCalculator(tasks_df, taskpred_df)
-        critical_tasks, total_critical_path_duration = cpc.run()
+        critical_tasks, critical_relationships, total_critical_path_duration = cpc.run()
 
-        # Print the critical path and its total duration
+        # Print the critical path tasks
         print("Critical Path Tasks:")
-        print(critical_tasks[['task_id', 'task_name', 'proj_id', 'duration']])
+        for _, task in critical_tasks.iterrows():
+            print(f"Task: {task['task_code']} - {task['task_name']}")
+            print(f"  Project: {task['proj_id']}")
+            print(f"  Duration: {task['duration']} days")
+            print(f"  Early Start: {task['early_start']:.2f}, Early Finish: {task['early_finish']:.2f}")
+            print(f"  Late Start: {task['late_start']:.2f}, Late Finish: {task['late_finish']:.2f}")
+            print()
+
+        # Print the critical path relationships
+        print("Critical Path Relationships:")
+        print(critical_relationships)
+        for _, rel in critical_relationships.iterrows():
+            from_task = critical_tasks[critical_tasks['task_id'] == rel['from_task']].iloc[0]
+            to_task = critical_tasks[critical_tasks['task_id'] == rel['to_task']].iloc[0]
+            print(f"From: {from_task['task_code']} - {from_task['task_name']}")
+            print(f"To: {to_task['task_code']} - {to_task['task_name']}")
+            print(f"  Relationship: {rel['relationship']}, Lag: {rel['lag']} days")
+            print()
+
         print(f"Total Critical Path Duration: {total_critical_path_duration:.2f} hours")
 
         # filter the dataframe based on the start and end date
