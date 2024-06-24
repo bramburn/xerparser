@@ -13,6 +13,7 @@ python = "^3.10"
 html-sanitizer = "^2.2.0"
 numpy = "^2.0.0"
 pandas = "^2.2.2"
+networkx = "^3.3"
 
 [tool.poetry.group.test.dependencies]
 tqdm = "^4.64.1"

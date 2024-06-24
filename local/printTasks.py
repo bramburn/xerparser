@@ -22,18 +22,21 @@ def main():
     if xer.task_df is not None:
         print("\nFirst 100 Tasks:")
         print("task_code, task_name, proj_id")
-        for i, (task_code, task_name, proj_id, target_drtn_hr_cnt, clndr_id, act_start_date, act_end_date) in enumerate(
+        for i, (task_code, task_name, proj_id, target_drtn_hr_cnt, clndr_id, act_start_date, act_end_date,early_start_date) in enumerate(
                 zip(xer.task_df['task_code'][:100], xer.task_df['task_name'][:100], xer.task_df['proj_id'][:100],
                     xer.task_df['target_drtn_hr_cnt'][:100], xer.task_df['clndr_id'][:100]
                     , xer.task_df['act_start_date'][:100]
                     , xer.task_df['act_end_date'][:100]
+                    , xer.task_df['early_start_date'][:100]
                     )):
-            actual_start = datetime.strptime(act_start_date, date_format)
-            actual_finish = datetime.strptime(act_end_date, date_format)
-            actual_duration = actual_finish - actual_start
+            # print(type(act_end_date))
+            if act_start_date and act_end_date:
+                # actual_start = datetime.strptime(act_start_date, date_format)
+                # actual_finish = datetime.strptime(act_end_date, date_format)
+                actual_duration = act_end_date - act_start_date
             planned_duration = int(target_drtn_hr_cnt) / int(calendars[clndr_id])
             print(
-                f"task id: {task_code}, {task_name}, proj: {proj_id}, planned duration {planned_duration} days, actual {actual_duration.days}")
+                f"task id: {task_code}, {task_name}, proj: {proj_id}, planned duration {planned_duration} days, actual {act_start_date} {act_end_date}, {early_start_date}")
     else:
         print("No task data found in the XER file.")
 
