@@ -2,9 +2,11 @@
 from dataclasses import dataclass
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 
 from xerparser.src.validators import optional_int, optional_str
+
 
 @dataclass(frozen=True)
 class TASKPRED:
@@ -34,6 +36,7 @@ class TASKPRED:
     def __hash__(self) -> int:
         return hash(self.task_pred_id)
 
+
 def _process_taskpred_data(taskpred_df: pd.DataFrame) -> dict[str, TASKPRED]:
     taskpred_dict = {}
     for _, row in taskpred_df.iterrows():
@@ -49,3 +52,10 @@ def _process_taskpred_data(taskpred_df: pd.DataFrame) -> dict[str, TASKPRED]:
         )
         taskpred_dict[taskpred.task_pred_id] = taskpred
     return taskpred_dict
+
+
+def calculate_lag_days(task):
+    if pd.notnull(task['lag_hr_cnt']):
+        lag_days = float(task['lag_hr_cnt']) / 8.0
+        return lag_days
+    return np.nan

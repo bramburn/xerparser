@@ -8,7 +8,8 @@ import numpy as np
 import pandas as pd
 
 from xerparser import CODEC, file_reader, parser
-from xerparser.schemas.task import calculate_completion
+from xerparser.schemas.task import calculate_completion, calculate_duration, calculate_remaining_days
+from xerparser.schemas.taskpred import calculate_lag_days
 
 
 class Xer:
@@ -36,10 +37,18 @@ class Xer:
                 tasks['act_end_date'] = pd.to_datetime(tasks['act_end_date'].replace('', np.nan),
                                                        format='%Y-%m-%d %H:%M', errors='coerce')
                 tasks['progress'] = tasks.apply(calculate_completion, axis=1)
+                tasks['duration'] = tasks.apply(calculate_duration, axis=1)
+                tasks['remaining_days'] = tasks.apply(calculate_remaining_days, axis=1)
+
+            task_pred = xer_data.get('TASKPRED', None)
+            if task_pred is not None:
+                task_pred['lag_days'] = task_pred.apply(calculate_lag_days,axis=1)
+
+
             return (
                 xer_data.get('PROJECT', None),
                 tasks,
-                xer_data.get('TASKPRED', None),
+                task_pred,
                 xer_data.get('PROJWBS', None),
                 xer_data.get('CALENDAR', None),
                 xer_data.get('ACCOUNT', None)

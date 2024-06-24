@@ -107,3 +107,18 @@ def calculate_completion(task):
 
         return actual_duration / planned_duration
     return np.nan
+
+
+def calculate_duration(task):
+    if pd.notnull(task['target_drtn_hr_cnt']):
+        planned_duration = float(task['target_drtn_hr_cnt']) / 8.0
+        return planned_duration
+    return np.nan
+
+
+def calculate_remaining_days(task):
+    if pd.notnull(task['remain_drtn_hr_cnt']):
+        remaining_days = float(task['remain_drtn_hr_cnt']) / 8.0
+        return remaining_days
+
+    return np.nan

@@ -1,13 +1,15 @@
 import numpy as np
 from datetime import datetime, timedelta
 import pandas as pd
+
+from local.critical_path_class import CriticalPathCalculator
 from xerparser import Xer
 
 date_format = "%Y-%m-%d %H:%M"
 
 # split_date = pd.Timestamp('2023-12-01 00:00:00')
 # define the start and end dates for the filter
-start_date = pd.to_datetime('2022-12-01 00:00:00')  # example start date
+start_date = pd.to_datetime('2022-11-01 00:00:00')  # example start date
 end_date = pd.to_datetime('2023-01-01 00:00:00')  # example end date
 split_date = end_date
 
@@ -25,7 +27,7 @@ def main():
         file_contents = f.read()
     xer = Xer(file_contents)
     calendars = {}
-    if xer.calendar_df is not None:
+    if xer.calendar_df is not None and xer.taskpred_df is not None:
         for clndr_id, day_hr_cnt in zip(xer.calendar_df['clndr_id'], xer.calendar_df['day_hr_cnt']):
             calendars[clndr_id] = day_hr_cnt
 
@@ -35,11 +37,11 @@ def main():
 
         # filter out activities that have not started yet or have finished after the specific split date
         xer.task_df = xer.task_df[(xer.task_df['act_start_date'] <= split_date.strftime(date_format)) & (
-                    xer.task_df['act_end_date'] <= split_date.strftime(date_format))]
+                xer.task_df['act_end_date'] <= split_date.strftime(date_format))]
 
         # set the progress of activities that have not started or have finished after the split date to 0%
         xer.task_df.loc[(xer.task_df['act_start_date'] > split_date.strftime(date_format)) | (
-                    xer.task_df['act_end_date'] > split_date.strftime(date_format)), 'progress'] = 0
+                xer.task_df['act_end_date'] > split_date.strftime(date_format)), 'progress'] = 0
 
         # calculate the progress of activities that have started before the split date and completed after the split date
         for i, (task_code, task_name, proj_id, target_drtn_hr_cnt, clndr_id, act_start_date, act_end_date) in enumerate(
@@ -61,10 +63,26 @@ def main():
         # print the first 100 tasks
         # set the act_end_date to NaN for tasks that have not been completed by the split_date
 
-        #vectorising and cleaning up the act_end_date
+        # vectorising and cleaning up the act_end_date
         xer.task_df.loc[(xer.task_df['act_start_date'] <= split_date) & (
-                    xer.task_df['act_end_date'] > split_date), 'act_end_date'] = np.nan
-        print("\nFirst 100 Tasks:")
+                xer.task_df['act_end_date'] > split_date), 'act_end_date'] = np.nan
+
+        # Extract the tasks and taskpred information
+        tasks_df = xer.task_df[
+            ['task_code', 'task_name', 'proj_id', 'target_drtn_hr_cnt', 'duration', 'progress', 'remaining_days']]
+        tasks_df['task_id'] = tasks_df.index  # Assuming task_id is the index
+
+        taskpred_df = xer.taskpred_df[['pred_task_id', 'task_id', 'lag_days']]
+
+        # Create an instance of the CriticalPathCalculator and run the calculations
+        cpc = CriticalPathCalculator(tasks_df, taskpred_df)
+        critical_tasks, total_critical_path_duration = cpc.run()
+
+        # Print the critical path and its total duration
+        print("Critical Path Tasks:")
+        print(critical_tasks[['task_id', 'task_name', 'proj_id', 'duration']])
+        print(f"Total Critical Path Duration: {total_critical_path_duration / 8:.2f} days")
+
         # filter the dataframe based on the start and end date
         filtered_tasks = xer.task_df[
             (xer.task_df['act_start_date'] >= start_date) &
@@ -84,7 +102,7 @@ def main():
             actual_completion_duration = act_end_date - act_start_date
 
             print(
-                f"task id: {task_code}, {task_name}, proj: {proj_id}, planned duration {int(target_drtn_hr_cnt) / 8} days, actual completion: {actual_completion_duration} [start : {act_start_date} end: {act_end_date}] - {progress*100:2f}%")
+                f"task id: {task_code}, {task_name}, proj: {proj_id}, planned duration {int(target_drtn_hr_cnt) / 8} days, actual completion: {actual_completion_duration} [start : {act_start_date} end: {act_end_date}] - {progress * 100:2f}%")
     else:
         print("No task data found in the XER file.")
 
