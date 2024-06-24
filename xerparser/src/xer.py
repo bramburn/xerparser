@@ -1,40 +1,12 @@
 # xerparser
 # xer.py
 
-import logging
-from itertools import groupby
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import BinaryIO
 
 import pandas as pd
 
-from xerparser.schemas.account import _process_account_data
-from xerparser.schemas.actvcode import ACTVCODE, _process_actvcode_data
-from xerparser.schemas.actvtype import _process_actvtype_data
-from xerparser.schemas.calendars import _process_calendar_data
-from xerparser.schemas.pcatval import PCATVAL
-from xerparser.schemas.project import PROJECT
-from xerparser.schemas.projwbs import PROJWBS, _process_projwbs_data
-from xerparser.schemas.rsrcrate import RSRCRATE
-from xerparser.schemas.task import TASK, LinkToTask
-from xerparser.schemas.taskfin import TASKFIN
-from xerparser.schemas.taskmemo import TASKMEMO
-from xerparser.schemas.taskpred import TASKPRED
-from xerparser.schemas.taskrsrc import TASKRSRC
-from xerparser.schemas.trsrcfin import TRSRCFIN
-from xerparser.schemas.udftype import UDFTYPE
-from xerparser.src.errors import CorruptXerFile, find_xer_errors
-from xerparser.src.parser import CODEC, file_reader, parser
-
-logging.basicConfig(
-    filename='xer_parser.log',
-    level=logging.WARNING,
-    format='%(asctime)s %(levelname)s: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-
-logger = logging.getLogger(__name__)
-
+from xerparser import CODEC, file_reader, parser
 
 class Xer:
     """
@@ -45,29 +17,22 @@ class Xer:
     CODEC = CODEC
 
     def __init__(self, xer_file_contents: str) -> None:
-        self.tables = self._parse_xer_data(xer_file_contents)
-        self._process_data()
+        self.project_df, self.task_df, self.taskpred_df, self.projwbs_df, self.calendar_df, self.account_df = self._parse_xer_data(xer_file_contents)
 
-    def _parse_xer_data(self, xer_file_contents: str) -> dict[str, list]:
-        """Parse the XER file contents and return the table data."""
-        if errors := find_xer_errors(self.tables):
-            raise CorruptXerFile(errors)
-        return parser(xer_file_contents)
-
-    def _process_data(self) -> None:
-
-        # todo: add types
-
-        # Set up additional relationships and data
-        self._set_proj_activity_codes()
-        self._set_proj_codes()
-        self._set_proj_calendars()
-
-        self._set_task_actv_codes()
-        self._set_task_memos()
-        self._set_task_resources()
-        self._set_financial_periods()
-        self._set_udf_values()
+    def _parse_xer_data(self, xer_file_contents: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        """Parse the XER file contents and return the table data as DataFrames."""
+        if xer_file_contents.startswith("ERMHDR"):
+            xer_data = parser(xer_file_contents)
+            return (
+                xer_data.get('PROJECT', None),
+                xer_data.get('TASK', None),
+                xer_data.get('TASKPRED', None),
+                xer_data.get('PROJWBS', None),
+                xer_data.get('CALENDAR', None),
+                xer_data.get('ACCOUNT', None)
+            )
+        else:
+            raise ValueError("ValueError: invalid XER file")
 
     @classmethod
     def reader(cls, file: Path | str | BinaryIO) -> "Xer":
@@ -82,39 +47,16 @@ class Xer:
         file_contents = file_reader(file)
         return cls(file_contents)
 
-    def _process_dataframe(self, df: pd.DataFrame, table_name: str) -> pd.DataFrame:
-        # Preprocess the DataFrame using pandas and NumPy
-        if table_name == 'FINDATES':
-            df['start_date'] = pd.to_datetime(df['start_date'])
-            df['end_date'] = pd.to_datetime(df['end_date'])
-        elif table_name == 'ACCOUNT':
-            df['acct_id'] = df['acct_id'].astype(str)
-            df['parent_acct_id'] = df['parent_acct_id'].astype(str)
-            self.accounts = _process_account_data(df)
-        elif table_name == 'ACTVTYPE':
-            df['actv_code_type_id'] = df['actv_code_type_id'].astype(str)
-            df['proj_id'] = df['proj_id'].astype(str)
-            df['actv_short_len'] = df['actv_short_len'].astype(int)
-            df['seq_num'] = df['seq_num'].fillna(-1).astype(int)
-            self.activity_code_types = _process_actvtype_data(df)
-        elif table_name == 'ACTVCODE':
-            df['actv_code_id'] = df['actv_code_id'].astype(str)
-            df['actv_code_type_id'] = df['actv_code_type_id'].astype(str)
-            df['parent_actv_code_id'] = df['parent_actv_code_id'].astype(str)
-            self.activity_code_values = _process_actvcode_data(df)
-        elif table_name == 'CALENDAR':
-            df['clndr_id'] = df['clndr_id'].astype(str)
-            df['proj_id'] = df['proj_id'].astype(str)
-            self.calendars = _process_calendar_data(df)
-        elif table_name == 'PROJWBS':
-            df['wbs_id'] = df['wbs_id'].astype(str)
-            df['proj_id'] = df['proj_id'].astype(str)
-            df['parent_wbs_id'] = df['parent_wbs_id'].astype(str)
-            self.wbs_nodes = _process_projwbs_data(df)
 
-        # add relationships after
-        return df
+def generate_xer_contents(xer: Xer) -> str:
+    """Generate the updated XER file contents from the modified DataFrames."""
+    xer_contents = "ERMHDR\t" + "\t".join([str(x) for x in xer.tables['ERMHDR'].iloc[0]]) + "\n"
 
+    for table_name, df in xer.tables.items():
+        if table_name != 'ERMHDR':
+            xer_contents += f"%T\t{table_name}\n"
+            xer_contents += "\t".join(df.columns) + "\n"
+            for _, row in df.iterrows():
+                xer_contents += "\t".join([str(x) for x in row]) + "\n"
 
-def proj_key(obj: Any) -> str:
-    return (obj.proj_id, "")[obj.proj_id is None]
+    return xer_contents

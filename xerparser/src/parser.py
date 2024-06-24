@@ -1,8 +1,11 @@
 # xerparser
 # parser.py
-from xerparser.src.table_data import table_data
 from pathlib import Path
 from typing import BinaryIO
+
+import pandas as pd
+
+
 
 CODEC = "cp1252"
 
@@ -30,71 +33,20 @@ def file_reader(file: str | Path | BinaryIO) -> str:
     return file_contents
 
 
-def validate_dependencies(data: dict[str, list]) -> bool:
-    missing_tables = []
-
-    for table, info in table_data.items():
-        for dep in info['depends']:
-            if dep not in data:
-                missing_tables.append((table, dep))
-
-    if missing_tables:
-        print("The following tables have missing dependencies:")
-        for table, dep in missing_tables:
-            print(f"{table} depends on {dep}, but {dep} is not defined.")
-        return False
-    else:
-        print("All tables have their dependencies defined.")
-        return True
-
-
-def parser(xer_contents: str) -> dict[str, list]:
-    """
-    Parses the contents of a P6 .xer file and converts it into a
-    Python dictionary object.
-
-    Args:
-        xer_contents (str): .xer file contents
-
-    Returns:
-        dict[str, list]: xer information and data tables
-    """
-    if not isinstance(xer_contents, str):
-        raise TypeError(
-            f"TypeError: xer_contents must be <class 'str'>; got {type(xer_contents)}"
-        )
-
-    if not xer_contents.startswith("ERMHDR"):
-        raise ValueError("ValueError: invalid XER file")
-
-    table_delimiter = "%T\t"
-    tables = xer_contents.split(table_delimiter)
-    xer_data: dict[str, list] = {}
-
-    # The first row in the xer file includes file export information
-    xer_data["ERMHDR"] = tables.pop(0).strip().split("\t")[1:]
-
-    for table in tables:
-        table_name = table.split("\n")[0].strip()
-        if table_name in table_data:
-            xer_data.update(_parse_table(table))
-        else:
-            pass
-
-    # Validate dependencies after parsing is complete
-    validate_dependencies(xer_data)
-
-    return xer_data
-
-
-def _parse_table(table: str) -> dict[str, list[dict]]:
+def _parse_table(table: str) -> pd.DataFrame:
     """Parse table name, columns, and rows"""
-
     lines: list[str] = table.split("\n")
     name = lines.pop(0).strip()  # First line is the table name
+
+    if name == "ERMHDR":
+        # Handle the ERMHDR table separately
+        cols = lines.pop(0).strip().split("\t")[1:]
+        data = [dict(zip(cols, row.split("\t")[1:])) for row in lines]
+        return pd.DataFrame(data)
+
     cols = lines.pop(0).strip().split("\t")[1:]  # Second line is the column labels
     data = [dict(zip(cols, _clean_row(row))) for row in lines if row.startswith("%R")]
-    return {name: data}
+    return pd.DataFrame(data)
 
 
 def _clean_row(row: str) -> list[str]:
@@ -110,3 +62,40 @@ def _clean_value(val: str) -> str:
     if val == "":
         return ""
     return val.strip()
+
+
+def parser(xer_contents: str) -> dict[str, pd.DataFrame]:
+    """
+    Parses the contents of a P6 .xer file and converts it into a
+    Pandas DataFrame for each table.
+
+    Args:
+        xer_contents (str): .xer file contents
+
+    Returns:
+        dict[str, pd.DataFrame]: xer information and data tables
+    """
+    if not isinstance(xer_contents, str):
+        raise TypeError(
+            f"TypeError: xer_contents must be <class 'str'>; got {type(xer_contents)}"
+        )
+
+    if not xer_contents.startswith("ERMHDR"):
+        raise ValueError("ValueError: invalid XER file")
+
+    table_delimiter = "%T\t"
+    tables = xer_contents.split(table_delimiter)
+    xer_data: dict[str, pd.DataFrame] = {}
+
+    # The first row in the xer file includes file export information
+    xer_data["ERMHDR"] = _parse_table(tables.pop(0))
+
+    for table in tables:
+        table_name = table.split("\n")[0].strip()
+        xer_data[table_name] = _parse_table(table)
+
+    # Validate dependencies after parsing is complete
+    # validate_dependencies(xer_data)
+
+    return xer_data
+

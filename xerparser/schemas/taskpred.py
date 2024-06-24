@@ -1,57 +1,51 @@
-# xerparser
 # taskpred.py
+from dataclasses import dataclass
+from typing import Optional
 
-from datetime import datetime
 import pandas as pd
 
-from xerparser.src.validators import optional_int, optional_date, int_or_zero, optional_str
+from xerparser.src.validators import optional_int, optional_str
 
+@dataclass(frozen=True)
 class TASKPRED:
     """
-    A class to represent a relationship between two activities.
+    A class to represent an Activity Relationship.
     """
-
-    def __init__(self, row: pd.Series) -> None:
-        self.uid: str = row['task_pred_id']
-        self.task_id: str = row['task_id']
-        self.pred_task_id: str = row['pred_task_id']
-        self.proj_id: str = row['proj_id']
-        self.pred_proj_id: str = row['pred_proj_id']
-        self.pred_type: str = row['pred_type']
-        self.lag_hr_cnt: int = int_or_zero(row['lag_hr_cnt'])
-        self.float_path: int | None = optional_int(row['float_path'])
-        self.aref: datetime | None = optional_date(row['aref'])
-        self.arls: datetime | None = optional_date(row['arls'])
-        self.comments: str | None = optional_str(row['comments'])
+    task_pred_id: str
+    """Unique ID"""
+    task_id: str
+    """Successor"""
+    pred_task_id: str
+    """Predecessor"""
+    proj_id: str
+    """Successor Project"""
+    pred_proj_id: str
+    """Predecessor Project"""
+    lag_hr_cnt: int
+    """Lag"""
+    comments: Optional[str]
+    """Comments"""
+    pred_type: str
+    """Relationship Type"""
 
     def __eq__(self, __o: "TASKPRED") -> bool:
-        return (
-            self.task_id == __o.task_id
-            and self.pred_task_id == __o.pred_task_id
-            and self.link == __o.link
-        )
-
-    def __gt__(self, __o: "TASKPRED") -> bool:
-        if self.task_id == __o.task_id:
-            if self.pred_task_id == __o.pred_task_id:
-                return self.link > __o.link
-            return self.pred_task_id > __o.pred_task_id
-        return self.task_id > __o.task_id
-
-    def __lt__(self, __o: "TASKPRED") -> bool:
-        if self.task_id == __o.task_id:
-            if self.pred_task_id == __o.pred_task_id:
-                return self.link < __o.link
-            return self.pred_task_id < __o.pred_task_id
-        return self.task_id < __o.task_id
+        return self.task_pred_id == __o.task_pred_id
 
     def __hash__(self) -> int:
-        return hash((self.task_id, self.pred_task_id, self.link))
+        return hash(self.task_pred_id)
 
-    @property
-    def lag(self) -> int:
-        return int(self.lag_hr_cnt / 8)
-
-    @property
-    def link(self) -> str:
-        return self.pred_type[-2:]
+def _process_taskpred_data(taskpred_df: pd.DataFrame) -> dict[str, TASKPRED]:
+    taskpred_dict = {}
+    for _, row in taskpred_df.iterrows():
+        taskpred = TASKPRED(
+            task_pred_id=row["task_pred_id"],
+            task_id=row["task_id"],
+            pred_task_id=row["pred_task_id"],
+            proj_id=row["proj_id"],
+            pred_proj_id=row["pred_proj_id"],
+            lag_hr_cnt=optional_int(row["lag_hr_cnt"]),
+            comments=optional_str(row["comments"]),
+            pred_type=row["pred_type"]
+        )
+        taskpred_dict[taskpred.task_pred_id] = taskpred
+    return taskpred_dict

@@ -1,9 +1,9 @@
 # xerparser
 # account.py
+from typing import Optional
 
 import pandas as pd
-from xerparser.src.validators import optional_int
-
+from xerparser.src.validators import optional_int, optional_str
 
 class ACCOUNT:
     """
@@ -14,9 +14,9 @@ class ACCOUNT:
         self.acct_id: str = row['acct_id']
         self.acct_short_name: str = row['acct_short_name']
         self.acct_name: str = row['acct_name']
-        self.parent_acct_id: str = row['parent_acct_id']
+        self.parent_acct_id: Optional[str] = optional_str(row['parent_acct_id'])
         self.description: str = _check_description(row['acct_descr'])
-        self.seq_num: int | None = optional_int(row['acct_seq_num'])
+        self.seq_num: Optional[int] = optional_int(row['acct_seq_num'])
 
     def __eq__(self, __o: "ACCOUNT") -> bool:
         if __o is None:
@@ -26,12 +26,10 @@ class ACCOUNT:
     def __hash__(self) -> int:
         return hash((self.acct_name, self.acct_id))
 
-
 def _check_description(value: str) -> str:
-    return (value, "")[value == "" or value == "ï»¿"]
+    return value if value and value != "ï»¿" else ""
 
-
-def _process_account_data( account_df: pd.DataFrame) -> dict[str, ACCOUNT]:
+def _process_account_data(account_df: pd.DataFrame) -> dict[str, ACCOUNT]:
     """
     Process the ACCOUNT table data and create a dictionary of ACCOUNT objects.
 

@@ -1,140 +1,178 @@
-# xerparser
 # taskrsrc.py
-
-# from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Optional
 
-from xerparser.schemas.account import ACCOUNT
-from xerparser.schemas.rsrc import RSRC
-from xerparser.schemas.trsrcfin import TRSRCFIN
-from xerparser.scripts.decorators import rounded
-from xerparser.src.validators import (
-    date_format,
-    optional_date,
-    optional_str,
-)
+import pandas as pd
 
+from xerparser.src.validators import optional_date, optional_float, optional_int, optional_str
 
+@dataclass(frozen=True)
 class TASKRSRC:
-    """A class to represent a resource assigned to an activity."""
-
-    def __init__(self, account: ACCOUNT | None, resource: RSRC, **data) -> None:
-        self.uid: str = data["taskrsrc_id"]
-        self.task_id: str = data["task_id"]
-        self.proj_id: str = data["proj_id"]
-        self.acct_id: str | None = optional_str(data["acct_id"])
-        self.rsrc_id: str = data["rsrc_id"]
-        self.remain_qty: float = float(data["remain_qty"])
-        self.target_qty: float = float(data["target_qty"])
-        self.act_ot_qty: float = float(data["act_ot_qty"])
-        self.act_reg_qty: float = float(data["act_reg_qty"])
-        self.target_cost: float = float(data["target_cost"])
-        self.act_reg_cost: float = float(data["act_reg_cost"])
-        self.act_ot_cost: float = float(data["act_ot_cost"])
-        self.remain_cost: float = float(data["remain_cost"])
-        self.act_start_date: datetime | None = optional_date(data["act_start_date"])
-        self.act_end_date: datetime | None = optional_date(data["act_end_date"])
-        self.restart_date: datetime | None = optional_date(data["restart_date"])
-        self.reend_date: datetime | None = optional_date(data["reend_date"])
-        self.target_start_date: datetime = datetime.strptime(
-            data["target_start_date"], date_format
-        )
-        self.target_end_date: datetime = datetime.strptime(
-            data["target_end_date"], date_format
-        )
-        self.target_lag_drtn_hr_cnt: int = int(data["target_lag_drtn_hr_cnt"])
-        self.rem_late_start_date: datetime | None = optional_date(
-            data["rem_late_start_date"]
-        )
-        self.rem_late_end_date: datetime | None = optional_date(
-            data["rem_late_end_date"]
-        )
-        self.act_this_per_cost: float = float(data["act_this_per_cost"])
-        self.act_this_per_qty: float = float(data["act_this_per_qty"])
-        self.rsrc_type: str = data["rsrc_type"]
-        self.account: ACCOUNT | None = account_or_none(account)
-        self.resource: RSRC = resource
-        self.periods: list[TRSRCFIN] = []
+    """
+    A class to represent an Activity Resource Assignment.
+    """
+    taskrsrc_id: str
+    """Unique ID"""
+    task_id: str
+    """Activity Name"""
+    rsrc_id: str
+    """Resource ID Name"""
+    proj_id: str
+    """Project"""
+    acct_id: str
+    """Cost Account"""
+    act_start_date: Optional[datetime]
+    """Actual Start"""
+    act_end_date: Optional[datetime]
+    """Actual Finish"""
+    act_reg_qty: Optional[float]
+    """Actual Regular Units"""
+    act_ot_qty: Optional[float]
+    """Actual Overtime Units"""
+    act_reg_cost: Optional[float]
+    """Actual Regular Cost"""
+    act_ot_cost: Optional[float]
+    """Actual Overtime Cost"""
+    act_this_per_cost: Optional[float]
+    """Actual This Period Cost"""
+    act_this_per_qty: Optional[float]
+    """Actual This Period Units"""
+    actual_crv: Optional[str]
+    """Actual Units Profile"""
+    cost_per_qty: Optional[float]
+    """Price / Unit"""
+    cost_per_qty_source_type: Optional[str]
+    """Rate Source"""
+    cost_qty_link_flag: bool
+    """Calculate costs from units"""
+    create_date: datetime
+    """Assigned Date"""
+    create_user: str
+    """Assigned by"""
+    curv_id: Optional[str]
+    """Curve"""
+    guid: str
+    """Global Unique ID"""
+    ot_factor: Optional[float]
+    """Overtime Factor"""
+    pend_act_ot_qty: Optional[float]
+    """Pend Actual Overtime Units (P6 Professional only)"""
+    pend_act_reg_qty: Optional[float]
+    """Pend Actual Regular Units (P6 Professional only)"""
+    pend_complete_pct: Optional[float]
+    """Pend % Complete (P6 Professional only)"""
+    pend_remain_qty: Optional[float]
+    """Pend Remaining Units (P6 Professional only)"""
+    prior_ts_act_of_qty: Optional[float]
+    """Prior Timesheet Actual Overtime Units (P6 Professional only)"""
+    prior_ts_act_reg_qty: Optional[float]
+    """Prior Timesheet Actual Regular Units (P6 Professional only)"""
+    rate_type: Optional[str]
+    """Rate Type"""
+    reend_date: Optional[datetime]
+    """Remaining Early Finish"""
+    relag_drtn_hr_cnt: Optional[float]
+    """Remaining Lag"""
+    rem_late_end_date: Optional[datetime]
+    """Remaining Late Finish"""
+    rem_late_start_date: Optional[datetime]
+    """Remaining Late Start"""
+    remain_cost: Optional[float]
+    """Remaining Early Cost"""
+    remain_crv: Optional[str]
+    """Remaining Units Profile"""
+    remain_qty: Optional[float]
+    """Remaining Early Units"""
+    remain_qty_per_hr: Optional[float]
+    """Remaining Units / Time"""
+    restart_date: Optional[datetime]
+    """Remaining Early Start"""
+    role_id: Optional[str]
+    """Role"""
+    rollup_dates_flag: bool
+    """Drive Activity Dates"""
+    skill_level: Optional[str]
+    """Proficiency"""
+    target_cost: Optional[float]
+    """Budgeted/Planned Cost"""
+    target_crv: Optional[str]
+    """Planned Units Profile"""
+    target_end_date: Optional[datetime]
+    """Planned Finish"""
+    target_lag_drtn_hr_cnt: Optional[float]
+    """Original Lag"""
+    target_qty: Optional[float]
+    """Budgeted/Planned Units"""
+    target_qty_per_hr: Optional[float]
+    """Budgeted/Planned Units / Time"""
+    target_start_date: Optional[datetime]
+    """Planned Start"""
+    ts_pend_act_end_flag: bool
+    """Pending Actual End Date Flag"""
+    wbs_id: str
+    """EPS/WBS"""
 
     def __eq__(self, __o: "TASKRSRC") -> bool:
-        return all(
-            (
-                self.resource == __o.resource,
-                self.account == __o.account,
-                self.target_qty == __o.target_qty,
-                self.target_cost == __o.target_cost,
-            )
-        )
+        return self.taskrsrc_id == __o.taskrsrc_id
 
     def __hash__(self) -> int:
-        return hash(
-            (
-                self.resource,
-                self.account,
-                self.target_qty,
-                self.target_cost,
-            )
+        return hash(self.taskrsrc_id)
+
+def _process_taskrsrc_data(taskrsrc_df: pd.DataFrame) -> dict[str, TASKRSRC]:
+    taskrsrc_dict = {}
+    for _, row in taskrsrc_df.iterrows():
+        taskrsrc = TASKRSRC(
+            taskrsrc_id=row["taskrsrc_id"],
+            task_id=row["task_id"],
+            rsrc_id=row["rsrc_id"],
+            proj_id=row["proj_id"],
+            acct_id=row["acct_id"],
+            act_start_date=optional_date(row["act_start_date"]),
+            act_end_date=optional_date(row["act_end_date"]),
+            act_reg_qty=optional_float(row["act_reg_qty"]),
+            act_ot_qty=optional_float(row["act_ot_qty"]),
+            act_reg_cost=optional_float(row["act_reg_cost"]),
+            act_ot_cost=optional_float(row["act_ot_cost"]),
+            act_this_per_cost=optional_float(row["act_this_per_cost"]),
+            act_this_per_qty=optional_float(row["act_this_per_qty"]),
+            actual_crv=optional_str(row["actual_crv"]),
+            cost_per_qty=optional_float(row["cost_per_qty"]),
+            cost_per_qty_source_type=optional_str(row["cost_per_qty_source_type"]),
+            cost_qty_link_flag=row["cost_qty_link_flag"] == 'Y',
+            create_date=pd.to_datetime(row["create_date"]),
+            create_user=row["create_user"],
+            curv_id=optional_str(row["curv_id"]),
+            guid=row["guid"],
+            ot_factor=optional_float(row["ot_factor"]),
+            pend_act_ot_qty=optional_float(row["pend_act_ot_qty"]),
+            pend_act_reg_qty=optional_float(row["pend_act_reg_qty"]),
+            pend_complete_pct=optional_float(row["pend_complete_pct"]),
+            pend_remain_qty=optional_float(row["pend_remain_qty"]),
+            prior_ts_act_of_qty=optional_float(row["prior_ts_act_of_qty"]),
+            prior_ts_act_reg_qty=optional_float(row["prior_ts_act_reg_qty"]),
+            rate_type=optional_str(row["rate_type"]),
+            reend_date=optional_date(row["reend_date"]),
+            relag_drtn_hr_cnt=optional_float(row["relag_drtn_hr_cnt"]),
+            rem_late_end_date=optional_date(row["rem_late_end_date"]),
+            rem_late_start_date=optional_date(row["rem_late_start_date"]),
+            remain_cost=optional_float(row["remain_cost"]),
+            remain_crv=optional_str(row["remain_crv"]),
+            remain_qty=optional_float(row["remain_qty"]),
+            remain_qty_per_hr=optional_float(row["remain_qty_per_hr"]),
+            restart_date=optional_date(row["restart_date"]),
+            role_id=optional_str(row["role_id"]),
+            rollup_dates_flag=row["rollup_dates_flag"] == 'Y',
+            skill_level=optional_str(row["skill_level"]),
+            target_cost=optional_float(row["target_cost"]),
+            target_crv=optional_str(row["target_crv"]),
+            target_end_date=optional_date(row["target_end_date"]),
+            target_lag_drtn_hr_cnt=optional_float(row["target_lag_drtn_hr_cnt"]),
+            target_qty=optional_float(row["target_qty"]),
+            target_qty_per_hr=optional_float(row["target_qty_per_hr"]),
+            target_start_date=optional_date(row["target_start_date"]),
+            ts_pend_act_end_flag=row["ts_pend_act_end_flag"] == 'Y',
+            wbs_id=row["TASKRSRC.TASK|wbs_id"]
         )
-
-    @property
-    @rounded()
-    def act_total_cost(self) -> float:
-        return self.act_reg_cost + self.act_ot_cost
-
-    @property
-    @rounded()
-    def act_total_qty(self) -> float:
-        return self.act_reg_qty + self.act_ot_qty
-
-    @property
-    def at_completion_cost(self) -> float:
-        return self.act_total_cost + self.remain_cost
-
-    @property
-    def at_completion_qty(self) -> float:
-        return self.act_total_qty + self.remain_qty
-
-    @property
-    @rounded(ndigits=4)
-    def cost_percent(self) -> float:
-        return self.act_total_cost / self.target_cost if self.target_cost else 0.0
-
-    @property
-    @rounded()
-    def cost_variance(self) -> float:
-        return self.at_completion_cost - self.target_cost
-
-    @property
-    def finish(self) -> datetime:
-        """Calculated Finish Date for task resource (Actual Finish or Early Finish)"""
-        if self.act_end_date:
-            return self.act_end_date
-        if self.reend_date:
-            return self.reend_date
-        raise ValueError(f"Could not find finish date for taskrsrc {self.uid}")
-
-    @property
-    def lag(self) -> int:
-        return int(self.target_lag_drtn_hr_cnt / 8)
-
-    @property
-    def resource_type(self) -> str | None:
-        """Resource type (Labor, Material, Non-Labor)"""
-        return self.resource.type[3:] if self.resource else None
-
-    @property
-    def start(self) -> datetime:
-        """Calculated Start Date for task resource (Actual Start or Early Start)"""
-        if self.act_start_date:
-            return self.act_start_date
-        if self.restart_date:
-            return self.restart_date
-        raise ValueError(f"Could not find start date for taskrsrc {self.uid}")
-
-
-def account_or_none(value: ACCOUNT | None) -> ACCOUNT | None:
-    if value is None:
-        return None
-    if not isinstance(value, ACCOUNT):
-        raise ValueError(f"ValueError: expected <class ACCOUNT>; got {type(value)}")
-    return value
+        taskrsrc_dict[taskrsrc.taskrsrc_id] = taskrsrc
+    return taskrsrc_dict
