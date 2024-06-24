@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Dict, List
 
+import numpy as np
 import pandas as pd
 
 
@@ -85,9 +86,24 @@ class TASK:
         return pd.DataFrame([self.data])
 
 
-def create_tasks_from_dataframe(df: pd.DataFrame) -> List[Task]:
-    # Convert a pandas DataFrame to a list of Task objects
-    tasks = []
-    for index, row in df.iterrows():
-        tasks.append(Task(row.to_dict()))
-    return tasks
+# def create_tasks_from_dataframe(df: pd.DataFrame) -> List[Task]:
+#     # Convert a pandas DataFrame to a list of Task objects
+#     tasks = []
+#     for index, row in df.iterrows():
+#         tasks.append(Task(row.to_dict()))
+#     return tasks
+
+
+def calculate_completion(task):
+    if pd.notnull(task['act_start_date']) and pd.notnull(task['act_end_date']):
+        actual_duration = (task['act_end_date'] - task['act_start_date']) / np.timedelta64(1, 'D')
+        planned_duration = float(task['target_drtn_hr_cnt']) / 8.0
+
+        # We use a small threshold value (epsilon) to check for division by zero
+        epsilon = 1e-10
+
+        if abs(planned_duration) < epsilon or abs(actual_duration) < epsilon:
+            return np.nan
+
+        return actual_duration / planned_duration
+    return np.nan

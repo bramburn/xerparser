@@ -4,9 +4,12 @@
 from pathlib import Path
 from typing import BinaryIO
 
+import numpy as np
 import pandas as pd
 
 from xerparser import CODEC, file_reader, parser
+from xerparser.schemas.task import calculate_completion
+
 
 class Xer:
     """
@@ -17,15 +20,25 @@ class Xer:
     CODEC = CODEC
 
     def __init__(self, xer_file_contents: str) -> None:
-        self.project_df, self.task_df, self.taskpred_df, self.projwbs_df, self.calendar_df, self.account_df = self._parse_xer_data(xer_file_contents)
+        self.project_df, self.task_df, self.taskpred_df, self.projwbs_df, self.calendar_df, self.account_df = self._parse_xer_data(
+            xer_file_contents)
 
-    def _parse_xer_data(self, xer_file_contents: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    def _parse_xer_data(self, xer_file_contents: str) -> tuple[
+        pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
         """Parse the XER file contents and return the table data as DataFrames."""
         if xer_file_contents.startswith("ERMHDR"):
             xer_data = parser(xer_file_contents)
+            tasks = xer_data.get('TASK', None)
+            if tasks is not None:
+                # Convert non-empty strings in 'act_start_date' and 'act_end_date' to datetime
+                tasks['act_start_date'] = pd.to_datetime(tasks['act_start_date'].replace('', np.nan),
+                                                         format='%Y-%m-%d %H:%M', errors='coerce')
+                tasks['act_end_date'] = pd.to_datetime(tasks['act_end_date'].replace('', np.nan),
+                                                       format='%Y-%m-%d %H:%M', errors='coerce')
+                tasks['progress'] = tasks.apply(calculate_completion, axis=1)
             return (
                 xer_data.get('PROJECT', None),
-                xer_data.get('TASK', None),
+                tasks,
                 xer_data.get('TASKPRED', None),
                 xer_data.get('PROJWBS', None),
                 xer_data.get('CALENDAR', None),
