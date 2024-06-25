@@ -3,12 +3,16 @@
 import networkx as nx
 import pandas as pd
 
+from local.libs.calendar_parser import CalendarParser
 from local.libs.working_day_calculator import WorkingDayCalculator
 
 
 class TotalFloatCPMCalculator:
     def __init__(self, xer_object):
+        self.working_day_calculator = None
         self.xer = xer_object
+        self.workdays_df = pd.DataFrame()
+        self.exception_df = pd.DataFrame()
         self.graph = nx.DiGraph()
         self.early_start = {}
         self.early_finish = {}
@@ -16,7 +20,16 @@ class TotalFloatCPMCalculator:
         self.late_finish = {}
         self.total_float = {}
         self.critical_path = []
-        self.working_day_calculator = WorkingDayCalculator(self.xer.calendar_df)
+
+    def set_workday_df(self,workday):
+        self.workdays_df = workday
+
+    def set_exception_df(self, exception):
+        self.exceptions_df = exception
+
+
+
+
 
     def build_graph(self):
         for _, task in self.xer.task_df.iterrows():
@@ -101,6 +114,7 @@ class TotalFloatCPMCalculator:
         self.critical_path = [node for node, tf in self.total_float.items() if tf <= float_threshold]
 
     def calculate_critical_path(self):
+        self.working_day_calculator = WorkingDayCalculator(self.workdays_df, self.exceptions_df)
         self.build_graph()
         self.forward_pass()
         self.backward_pass()
