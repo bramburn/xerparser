@@ -16,7 +16,7 @@ def main():
 
     logger.addHandler(error_file_handler)
 
-    file = r"baseline.xer"
+    file = r"updated.xer"
     try:
         with open(file, encoding=Xer.CODEC, errors="ignore") as f:
             file_contents = f.read()
