@@ -49,14 +49,15 @@ class TotalFloatCPMCalculator:
                         self.early_finish[p],
                         self.graph[p][node]['lag'],
                         self.graph.nodes[node]['calendar_id']
-                    )
+                    ) or self.early_finish[p]  # Use early_finish[p] if add_working_days returns None
                     for p in predecessors
                 )
-            self.early_finish[node] = self.working_day_calculator.add_working_days(
+            end_date = self.working_day_calculator.add_working_days(
                 self.early_start[node],
                 self.graph.nodes[node]['duration'],
                 self.graph.nodes[node]['calendar_id']
             )
+            self.early_finish[node] = end_date if end_date is not None else self.early_start[node]
 
     def backward_pass(self):
         project_end = max(self.early_finish.values())
@@ -65,20 +66,30 @@ class TotalFloatCPMCalculator:
             if not successors:
                 self.late_finish[node] = project_end
             else:
-                self.late_finish[node] = min(
-                    self.working_day_calculator.add_working_days(
-                        self.late_start[s],
-                        -self.graph[node][s]['lag'],
-                        self.graph.nodes[node]['calendar_id']
-                    )
-                    for s in successors
-                )
-            self.late_start[node] = self.working_day_calculator.add_working_days(
+                late_finish_candidates = []
+                for s in successors:
+                    late_start_s = self.late_start.get(s)
+                    if late_start_s is not None:
+                        late_finish = self.working_day_calculator.add_working_days(
+                            late_start_s,
+                            -self.graph[node][s]['lag'],
+                            self.graph.nodes[node]['calendar_id']
+                        )
+                        if late_finish is not None:
+                            late_finish_candidates.append(late_finish)
+
+                if late_finish_candidates:
+                    self.late_finish[node] = min(late_finish_candidates)
+                else:
+                    # If no valid late finish can be calculated, use the project end date
+                    self.late_finish[node] = project_end
+
+            late_start = self.working_day_calculator.add_working_days(
                 self.late_finish[node],
                 -self.graph.nodes[node]['duration'],
                 self.graph.nodes[node]['calendar_id']
             )
-
+            self.late_start[node] = late_start if late_start is not None else self.late_finish[node]
     def calculate_total_float(self):
         for node in self.graph.nodes:
             self.total_float[node] = self.working_day_calculator.get_working_days_between(

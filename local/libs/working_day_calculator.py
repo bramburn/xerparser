@@ -84,13 +84,23 @@ class WorkingDayCalculator:
         remaining_days = abs(days)
         day_increment = 1 if days >= 0 else -1
 
+        max_date = date(9999, 12, 31)
+        min_date = date(1, 1, 1)
+
         while remaining_days > 0:
-            current_date += timedelta(days=day_increment)
-            if self.is_working_day(current_date, calendar_id):
-                remaining_days -= 1
+            try:
+                next_date = current_date + timedelta(days=day_increment)
+                if next_date > max_date or next_date < min_date:
+                    logging.warning(f"Date out of range. Returning the last valid date: {current_date}")
+                    return current_date
+                current_date = next_date
+                if self.is_working_day(current_date, calendar_id):
+                    remaining_days -= 1
+            except OverflowError:
+                logging.warning(f"Date calculation overflow. Returning the last valid date: {current_date}")
+                return current_date
 
         return current_date
-
     def get_working_days_between(self, start_date, end_date, calendar_id):
         calendar_id = str(calendar_id)  # Ensure calendar_id is a string
         start_date = self._ensure_date(start_date)

@@ -18,7 +18,7 @@ class CalendarParser:
         self.calendar_df: pd.DataFrame = calendar_df
         self.calendars: Dict[
             str, Dict[str, Union[Dict[int, List[Tuple[time, time]]], Dict[date, List[Tuple[time, time]]]]]] = {}
-        self.logger: logging.Logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger(__name__)
 
     def parse_calendars(self) -> None:
         for _, row in self.calendar_df.iterrows():
@@ -35,13 +35,18 @@ class CalendarParser:
         try:
             workdays = self._parse_workdays(clndr_data)
             exceptions = self._parse_exceptions(clndr_data)
+
+            # Validate parsed dates
+            valid_exceptions = {k: v for k, v in exceptions.items() if isinstance(k, date)}
+            if len(valid_exceptions) != len(exceptions):
+                self.logger.warning(f"Some exception dates were invalid for calendar {calendar_id}")
+
             self.calendars[calendar_id] = {
                 'workdays': workdays,
-                'exceptions': exceptions
+                'exceptions': valid_exceptions
             }
         except Exception as e:
             self.logger.error(f"Error parsing calendar data for {calendar_id}: {str(e)}")
-
     def _parse_workdays(self, clndr_data: str) -> Dict[int, List[Tuple[time, time]]]:
         workday_pattern = r'\(0\|\|([1-7])\(\)([^()]*)\)'
         workdays: Dict[int, List[Tuple[time, time]]] = {}
@@ -59,21 +64,31 @@ class CalendarParser:
         return workdays
 
     @staticmethod
-    def _excel_date_to_datetime(excel_date_str: str) -> date | None:
+    def _excel_date_to_datetime(excel_date_str: str) -> Union[date, None]:
         try:
-            excel_date = int(excel_date_str)
+            excel_date = float(excel_date_str)  # Use float instead of int to handle fractional days
+        except ValueError:
+            logging.warning(f"Invalid Excel date format: {excel_date_str}")
+            return None
+
+        # Handle dates outside of Python's datetime range
+        if excel_date < -693593 or excel_date > 2958465:
+            logging.warning(f"Excel date {excel_date} is outside the valid range for Python's datetime.")
+            return None
+
+        try:
             # Excel's date system has two different starting dates
-            if excel_date > 60:
+            if excel_date >= 60:
                 # For dates after February 28, 1900
                 base_date = date(1899, 12, 30)
             else:
                 # For dates before March 1, 1900
                 base_date = date(1900, 1, 1)
 
-            delta = timedelta(days=excel_date - 1)  # Subtract 1 because Excel considers January 1, 1900 as day 1
+            delta = timedelta(days=int(excel_date) - 1)  # Subtract 1 because Excel considers January 1, 1900 as day 1
             return base_date + delta
         except (ValueError, OverflowError) as e:
-            logging.warning(f"Invalid or out of range Excel date: {excel_date_str}. Error: {str(e)}")
+            logging.warning(f"Error converting Excel date {excel_date_str}: {str(e)}")
             return None
 
     def _parse_exceptions(self, clndr_data: str) -> Dict[date, List[Tuple[time, time]]]:
@@ -83,6 +98,7 @@ class CalendarParser:
             try:
                 exception_date = self._excel_date_to_datetime(match.group(2))
                 if exception_date is None:
+                    self.logger.warning(f"Skipping exception date: {match.group(2)}")
                     continue  # Skip this exception if the date couldn't be parsed
                 hours_str = match.group(3) if match.group(3) else ""
                 if hours_str.strip():
@@ -93,7 +109,6 @@ class CalendarParser:
             except ValueError as e:
                 self.logger.warning(f"Invalid exception data: {match.group()}. Error: {str(e)}")
         return exceptions
-
     def _parse_hours(self, hours_str: str) -> List[Tuple[time, time]]:
         hour_pattern = r's\|(\d{2}:\d{2})\|f\|(\d{2}:\d{2})'
         hours: List[Tuple[time, time]] = []

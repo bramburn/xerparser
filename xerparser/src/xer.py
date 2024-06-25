@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import BinaryIO
-from datetime import datetime, time
+from datetime import datetime, time, date
 import json
 
 import numpy as np
@@ -59,12 +59,14 @@ class Xer:
                 calendar_parser.parse_calendars()
 
                 # Add parsed calendar data back to the DataFrame
-                calendar_df['parsed_workdays'] = calendar_df['clndr_id'].map(
-                    lambda x: json.dumps(self._convert_times_to_strings(calendar_parser.calendars[x]['workdays']))
+                calendar_df['parsed_workdays'] = calendar_df['clndr_id'].astype(str).map(
+                    lambda x: json.dumps(
+                        self._convert_times_to_strings(calendar_parser.calendars.get(x, {}).get('workdays', {})))
                 )
-                calendar_df['parsed_exceptions'] = calendar_df['clndr_id'].map(
+                calendar_df['parsed_exceptions'] = calendar_df['clndr_id'].astype(str).map(
                     lambda x: json.dumps({str(k): self._convert_times_to_strings(v) for k, v in
-                                          calendar_parser.calendars[x]['exceptions'].items()})
+                                          calendar_parser.calendars.get(x, {}).get('exceptions', {}).items() if
+                                          k is not None})
                 )
 
                 xer_data['CALENDAR'] = calendar_df
@@ -76,11 +78,13 @@ class Xer:
     @staticmethod
     def _convert_times_to_strings(data):
         if isinstance(data, dict):
-            return {k: Xer._convert_times_to_strings(v) for k, v in data.items()}
+            return {k: Xer._convert_times_to_strings(v) for k, v in data.items() if k is not None}
         elif isinstance(data, list):
             return [Xer._convert_times_to_strings(item) for item in data]
         elif isinstance(data, tuple) and all(isinstance(x, time) for x in data):
             return [t.strftime('%H:%M') for t in data]
+        elif isinstance(data, date):
+            return data.isoformat()
         else:
             return data
 
