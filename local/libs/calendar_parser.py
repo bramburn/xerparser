@@ -41,7 +41,7 @@ class CalendarParser:
             }
         except Exception as e:
             self.logger.error(f"Error parsing calendar data for {calendar_id}: {str(e)}")
-            
+
     def _parse_workdays(self, clndr_data: str) -> Dict[int, List[Tuple[time, time]]]:
         workday_pattern = r'\(0\|\|([1-7])\(\)([^()]*)\)'
         workdays: Dict[int, List[Tuple[time, time]]] = {}
@@ -59,7 +59,7 @@ class CalendarParser:
         return workdays
 
     @staticmethod
-    def _excel_date_to_datetime(excel_date_str: str) -> date:
+    def _excel_date_to_datetime(excel_date_str: str) -> date | None:
         try:
             excel_date = int(excel_date_str)
             # Excel's date system has two different starting dates
@@ -71,7 +71,7 @@ class CalendarParser:
                 base_date = date(1900, 1, 1)
 
             delta = timedelta(days=excel_date - 1)  # Subtract 1 because Excel considers January 1, 1900 as day 1
-            return (base_date + delta).date()
+            return base_date + delta
         except (ValueError, OverflowError) as e:
             logging.warning(f"Invalid or out of range Excel date: {excel_date_str}. Error: {str(e)}")
             return None
