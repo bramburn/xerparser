@@ -41,7 +41,7 @@ class CalendarParser:
             }
         except Exception as e:
             self.logger.error(f"Error parsing calendar data for {calendar_id}: {str(e)}")
-
+            
     def _parse_workdays(self, clndr_data: str) -> Dict[int, List[Tuple[time, time]]]:
         workday_pattern = r'\(0\|\|([1-7])\(\)([^()]*)\)'
         workdays: Dict[int, List[Tuple[time, time]]] = {}
@@ -58,12 +58,32 @@ class CalendarParser:
                 self.logger.warning(f"Invalid workday data: {match.group()}. Error: {str(e)}")
         return workdays
 
+    @staticmethod
+    def _excel_date_to_datetime(excel_date_str: str) -> date:
+        try:
+            excel_date = int(excel_date_str)
+            # Excel's date system has two different starting dates
+            if excel_date > 60:
+                # For dates after February 28, 1900
+                base_date = date(1899, 12, 30)
+            else:
+                # For dates before March 1, 1900
+                base_date = date(1900, 1, 1)
+
+            delta = timedelta(days=excel_date - 1)  # Subtract 1 because Excel considers January 1, 1900 as day 1
+            return (base_date + delta).date()
+        except (ValueError, OverflowError) as e:
+            logging.warning(f"Invalid or out of range Excel date: {excel_date_str}. Error: {str(e)}")
+            return None
+
     def _parse_exceptions(self, clndr_data: str) -> Dict[date, List[Tuple[time, time]]]:
         exception_pattern = r'\(0\|\|(\d+)\(d\|(\d+)\)(?:\((.*?)\))?\(\)\)'
         exceptions: Dict[date, List[Tuple[time, time]]] = {}
         for match in re.finditer(exception_pattern, clndr_data):
             try:
-                exception_date = self._excel_date_to_datetime(match.group(2)).date()
+                exception_date = self._excel_date_to_datetime(match.group(2))
+                if exception_date is None:
+                    continue  # Skip this exception if the date couldn't be parsed
                 hours_str = match.group(3) if match.group(3) else ""
                 if hours_str.strip():
                     hours = self._parse_hours(hours_str)
@@ -92,13 +112,7 @@ class CalendarParser:
         except ValueError:
             raise ValueError(f"Invalid time format: {time_str}")
 
-    @staticmethod
-    def _excel_date_to_datetime(excel_date_str: str) -> datetime:
-        try:
-            excel_date = int(excel_date_str)
-            return datetime(1899, 12, 30) + timedelta(days=excel_date)
-        except ValueError:
-            raise ValueError(f"Invalid Excel date: {excel_date_str}")
+
 
     @staticmethod
     def _merge_overlapping_hours(hours: List[Tuple[time, time]]) -> List[Tuple[time, time]]:

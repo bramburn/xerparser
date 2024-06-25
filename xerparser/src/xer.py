@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import BinaryIO
-from datetime import datetime
+from datetime import datetime, time
 import json
 
 import numpy as np
