@@ -28,6 +28,8 @@ class Xer:
         self.projwbs_df = self.tables.get('PROJWBS', None)
         self.calendar_df = self.tables.get('CALENDAR', None)
         self.account_df = self.tables.get('ACCOUNT', None)
+        self.workday_df = pd.DataFrame()
+        self.exception_df = pd.DataFrame()
 
     def _parse_xer_data(self, xer_file_contents: str) -> dict[str, pd.DataFrame]:
         """Parse the XER file contents and return the table data as DataFrames."""
@@ -58,18 +60,9 @@ class Xer:
                 calendar_parser = CalendarParser(calendar_df)
                 calendar_parser.parse_calendars()
 
-                # Add parsed calendar data back to the DataFrame
-                calendar_df['parsed_workdays'] = calendar_df['clndr_id'].astype(str).map(
-                    lambda x: json.dumps(
-                        self._convert_times_to_strings(calendar_parser.calendars.get(x, {}).get('workdays', {})))
-                )
-                calendar_df['parsed_exceptions'] = calendar_df['clndr_id'].astype(str).map(
-                    lambda x: json.dumps({str(k): self._convert_times_to_strings(v) for k, v in
-                                          calendar_parser.calendars.get(x, {}).get('exceptions', {}).items() if
-                                          k is not None})
-                )
-
-                xer_data['CALENDAR'] = calendar_df
+                # Add new DataFrames to xer_data
+                self.workday_df = calendar_parser.workdays_df
+                self.exception_df = calendar_parser.exceptions_df
 
             return xer_data
         else:
