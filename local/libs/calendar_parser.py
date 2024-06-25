@@ -48,24 +48,31 @@ class CalendarParser:
         for match in re.finditer(workday_pattern, clndr_data):
             try:
                 day = int(match.group(1))
-                hours = self._parse_hours(match.group(2))
-                workdays[day] = self._merge_overlapping_hours(hours)
+                hours_str = match.group(2)
+                if hours_str.strip():
+                    hours = self._parse_hours(hours_str)
+                    workdays[day] = self._merge_overlapping_hours(hours)
+                else:
+                    workdays[day] = []  # Empty list for non-working days
             except ValueError as e:
                 self.logger.warning(f"Invalid workday data: {match.group()}. Error: {str(e)}")
         return workdays
 
     def _parse_exceptions(self, clndr_data: str) -> Dict[date, List[Tuple[time, time]]]:
-        exception_pattern = r'\(d\|(\d+)\)\(([^()]*)\)'
+        exception_pattern = r'\(0\|\|(\d+)\(d\|(\d+)\)(?:\((.*?)\))?\(\)\)'
         exceptions: Dict[date, List[Tuple[time, time]]] = {}
         for match in re.finditer(exception_pattern, clndr_data):
             try:
-                exception_date = self._excel_date_to_datetime(match.group(1)).date()
-                hours = self._parse_hours(match.group(2))
-                exceptions[exception_date] = self._merge_overlapping_hours(hours)
+                exception_date = self._excel_date_to_datetime(match.group(2)).date()
+                hours_str = match.group(3) if match.group(3) else ""
+                if hours_str.strip():
+                    hours = self._parse_hours(hours_str)
+                    exceptions[exception_date] = self._merge_overlapping_hours(hours)
+                else:
+                    exceptions[exception_date] = []  # Empty list for non-working exception days
             except ValueError as e:
                 self.logger.warning(f"Invalid exception data: {match.group()}. Error: {str(e)}")
         return exceptions
-
     def _parse_hours(self, hours_str: str) -> List[Tuple[time, time]]:
         hour_pattern = r's\|(\d{2}:\d{2})\|f\|(\d{2}:\d{2})'
         hours: List[Tuple[time, time]] = []
