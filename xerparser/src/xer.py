@@ -6,10 +6,10 @@ import json
 import numpy as np
 import pandas as pd
 
+from local.libs.calendar_parser import CalendarParser
 from xerparser import CODEC, file_reader, parser
 from xerparser.schemas.task import calculate_completion, calculate_duration, calculate_remaining_days
 from xerparser.schemas.taskpred import calculate_lag_days
-from calendar_parser import CalendarParser
 
 
 class Xer:
@@ -60,10 +60,11 @@ class Xer:
 
                 # Add parsed calendar data back to the DataFrame
                 calendar_df['parsed_workdays'] = calendar_df['clndr_id'].map(
-                    lambda x: json.dumps(calendar_parser.calendars[x]['workdays'])
+                    lambda x: json.dumps(self._convert_times_to_strings(calendar_parser.calendars[x]['workdays']))
                 )
                 calendar_df['parsed_exceptions'] = calendar_df['clndr_id'].map(
-                    lambda x: json.dumps({str(k): v for k, v in calendar_parser.calendars[x]['exceptions'].items()})
+                    lambda x: json.dumps({str(k): self._convert_times_to_strings(v) for k, v in
+                                          calendar_parser.calendars[x]['exceptions'].items()})
                 )
 
                 xer_data['CALENDAR'] = calendar_df
@@ -71,6 +72,17 @@ class Xer:
             return xer_data
         else:
             raise ValueError("ValueError: invalid XER file")
+
+    @staticmethod
+    def _convert_times_to_strings(data):
+        if isinstance(data, dict):
+            return {k: Xer._convert_times_to_strings(v) for k, v in data.items()}
+        elif isinstance(data, list):
+            return [Xer._convert_times_to_strings(item) for item in data]
+        elif isinstance(data, tuple) and all(isinstance(x, time) for x in data):
+            return [t.strftime('%H:%M') for t in data]
+        else:
+            return data
 
     @classmethod
     def reader(cls, file: Path | str | BinaryIO) -> "Xer":

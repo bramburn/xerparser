@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, time, timedelta
 import logging
 import pandas as pd
 
@@ -13,11 +13,12 @@ class WorkingDayCalculator:
                 workdays = json.loads(row['parsed_workdays'])
                 exceptions = json.loads(row['parsed_exceptions'])
 
-                # Ensure workdays keys are strings
-                workdays = {str(k): v for k, v in workdays.items()}
+                # Ensure workdays keys are strings and values are lists of time tuples
+                workdays = {str(k): [self._parse_time_tuple(t) for t in v] for k, v in workdays.items()}
 
-                # Convert exception dates to datetime.date objects
-                exceptions = {self._parse_date(k): v for k, v in exceptions.items()}
+                # Convert exception dates to datetime.date objects and their values to lists of time tuples
+                exceptions = {self._parse_date(k): [self._parse_time_tuple(t) for t in v] for k, v in
+                              exceptions.items()}
 
                 self.calendars[calendar_id] = {
                     'workdays': workdays,
@@ -32,6 +33,23 @@ class WorkingDayCalculator:
             return pd.to_datetime(date_str).date()
         except ValueError:
             logging.warning(f"Failed to parse date: {date_str}")
+            return None
+
+    def _parse_time_tuple(self, time_tuple):
+        """Parse a time tuple string to a tuple of time objects."""
+        try:
+            start, end = time_tuple
+            return (self._parse_time(start), self._parse_time(end))
+        except ValueError:
+            logging.warning(f"Failed to parse time tuple: {time_tuple}")
+            return None
+
+    def _parse_time(self, time_str):
+        """Parse a time string to a time object."""
+        try:
+            return datetime.strptime(time_str, "%H:%M").time()
+        except ValueError:
+            logging.warning(f"Failed to parse time: {time_str}")
             return None
 
     def is_working_day(self, date_to_check, calendar_id):
@@ -94,9 +112,24 @@ class WorkingDayCalculator:
         return working_days
 
     def get_working_hours_per_day(self, date_to_check, calendar_id):
-        # This method could be implemented to handle partial working days
-        # For now, it returns a default of 8 hours for a working day
-        return 8 if self.is_working_day(date_to_check, calendar_id) else 0
+        calendar_id = str(calendar_id)
+        calendar = self.calendars.get(calendar_id)
+        if not calendar:
+            logging.warning(f"Calendar {calendar_id} not found")
+            return 0
+
+        date_to_check = self._ensure_date(date_to_check)
+        if date_to_check is None:
+            return 0
+
+        if date_to_check in calendar['exceptions']:
+            time_tuples = calendar['exceptions'][date_to_check]
+        else:
+            time_tuples = calendar['workdays'].get(str(date_to_check.weekday() + 1), [])
+
+        total_hours = sum((end.hour - start.hour + (end.minute - start.minute) / 60)
+                          for start, end in time_tuples if start and end)
+        return total_hours
 
     def _ensure_date(self, date_obj):
         """Ensure the input is a datetime.date object."""
