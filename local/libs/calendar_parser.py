@@ -18,6 +18,8 @@ class CalendarParser:
         self.calendar_df: pd.DataFrame = calendar_df
         self.calendars: Dict[
             str, Dict[str, Union[Dict[int, List[Tuple[time, time]]], Dict[date, List[Tuple[time, time]]]]]] = {}
+        self.workdays_df = pd.DataFrame(columns=['clndr_id', 'day', 'start_time', 'end_time'])
+        self.exceptions_df = pd.DataFrame(columns=['clndr_id', 'exception_date', 'start_time', 'end_time'])
         self.logger = logging.getLogger(__name__)
 
     def parse_calendars(self) -> None:
@@ -36,17 +38,35 @@ class CalendarParser:
             workdays = self._parse_workdays(clndr_data)
             exceptions = self._parse_exceptions(clndr_data)
 
-            # Validate parsed dates
-            valid_exceptions = {k: v for k, v in exceptions.items() if isinstance(k, date)}
-            if len(valid_exceptions) != len(exceptions):
-                self.logger.warning(f"Some exception dates were invalid for calendar {calendar_id}")
+            for day, hours in workdays.items():
+                for start, end in hours:
+                    self.workdays_df = pd.concat([self.workdays_df, pd.DataFrame({
+                        'clndr_id': [calendar_id],
+                        'day': [day],
+                        'start_time': [start],
+                        'end_time': [end]
+                    })], ignore_index=True)
 
-            self.calendars[calendar_id] = {
-                'workdays': workdays,
-                'exceptions': valid_exceptions
-            }
+            for exception_date, hours in exceptions.items():
+                if hours:
+                    for start, end in hours:
+                        self.exceptions_df = pd.concat([self.exceptions_df, pd.DataFrame({
+                            'clndr_id': [calendar_id],
+                            'exception_date': [exception_date],
+                            'start_time': [start],
+                            'end_time': [end]
+                        })], ignore_index=True)
+                else:
+                    self.exceptions_df = pd.concat([self.exceptions_df, pd.DataFrame({
+                        'clndr_id': [calendar_id],
+                        'exception_date': [exception_date],
+                        'start_time': [None],
+                        'end_time': [None]
+                    })], ignore_index=True)
+
         except Exception as e:
             self.logger.error(f"Error parsing calendar data for {calendar_id}: {str(e)}")
+
     def _parse_workdays(self, clndr_data: str) -> Dict[int, List[Tuple[time, time]]]:
         workday_pattern = r'\(0\|\|([1-7])\(\)([^()]*)\)'
         workdays: Dict[int, List[Tuple[time, time]]] = {}
@@ -66,31 +86,24 @@ class CalendarParser:
     @staticmethod
     def _excel_date_to_datetime(excel_date_str: str) -> Union[date, None]:
         try:
-            excel_date = float(excel_date_str)  # Use float instead of int to handle fractional days
+            # First, try to convert the string to a pandas datetime object
+            python_date = pd.to_datetime(excel_date_str, errors='coerce')
+
+            # If it's a valid datetime, convert it to a date object
+            if pd.notnull(python_date):
+                return python_date.date()
+
+        except ValueError:
+            pass  # If conversion fails, proceed to the next check
+
+        try:
+            # If the previous conversion failed, try to convert to float (for Excel dates)
+            excel_date = float(excel_date_str)
+            python_date = pd.to_datetime('1899-12-30') + pd.to_timedelta(excel_date, 'D')
+            return python_date.date()
         except ValueError:
             logging.warning(f"Invalid Excel date format: {excel_date_str}")
             return None
-
-        # Handle dates outside of Python's datetime range
-        if excel_date < -693593 or excel_date > 2958465:
-            logging.warning(f"Excel date {excel_date} is outside the valid range for Python's datetime.")
-            return None
-
-        try:
-            # Excel's date system has two different starting dates
-            if excel_date >= 60:
-                # For dates after February 28, 1900
-                base_date = date(1899, 12, 30)
-            else:
-                # For dates before March 1, 1900
-                base_date = date(1900, 1, 1)
-
-            delta = timedelta(days=int(excel_date) - 1)  # Subtract 1 because Excel considers January 1, 1900 as day 1
-            return base_date + delta
-        except (ValueError, OverflowError) as e:
-            logging.warning(f"Error converting Excel date {excel_date_str}: {str(e)}")
-            return None
-
     def _parse_exceptions(self, clndr_data: str) -> Dict[date, List[Tuple[time, time]]]:
         exception_pattern = r'\(0\|\|(\d+)\(d\|(\d+)\)(?:\((.*?)\))?\(\)\)'
         exceptions: Dict[date, List[Tuple[time, time]]] = {}
@@ -143,88 +156,7 @@ class CalendarParser:
                 merged.append(current)
         return merged
 
-    def is_working_day(self, calendar_id: Union[str, int], date: Union[str, datetime]) -> bool:
-        calendar = self.calendars.get(str(calendar_id))
-        if not calendar:
-            self.logger.warning(f"Calendar not found: {calendar_id}")
-            return False
 
-        if not isinstance(date, datetime):
-            try:
-                date = pd.to_datetime(date)
-            except ValueError:
-                self.logger.error(f"Invalid date format: {date}")
-                return False
 
-        if date.date() in calendar['exceptions']:
-            return bool(calendar['exceptions'][date.date()])
 
-        return bool(calendar['workdays'].get(date.weekday() + 1))
 
-    def get_working_hours(self, calendar_id: Union[str, int], date: Union[str, datetime]) -> List[Tuple[time, time]]:
-        calendar = self.calendars.get(str(calendar_id))
-        if not calendar:
-            self.logger.warning(f"Calendar not found: {calendar_id}")
-            return []
-
-        if not isinstance(date, datetime):
-            try:
-                date = pd.to_datetime(date)
-            except ValueError:
-                self.logger.error(f"Invalid date format: {date}")
-                return []
-
-        if date.date() in calendar['exceptions']:
-            return calendar['exceptions'][date.date()]
-
-        return calendar['workdays'].get(date.weekday() + 1, [])
-
-    def add_working_days(self, calendar_id: Union[str, int], start_date: Union[str, datetime],
-                         days: Union[str, int]) -> datetime:
-        if not isinstance(start_date, datetime):
-            try:
-                start_date = pd.to_datetime(start_date)
-            except ValueError:
-                raise ValueError(f"Invalid start_date format: {start_date}")
-
-        try:
-            days = int(days)
-        except ValueError:
-            raise ValueError(f"Invalid days value: {days}. Must be convertible to an integer.")
-
-        current_date: datetime = start_date
-        remaining_days: int = days
-
-        while remaining_days > 0:
-            current_date += timedelta(days=1)
-            if self.is_working_day(calendar_id, current_date):
-                remaining_days -= 1
-
-        return current_date
-
-    def get_working_days_between(self, calendar_id: Union[str, int], start_date: Union[str, datetime],
-                                 end_date: Union[str, datetime]) -> int:
-        if not isinstance(start_date, datetime):
-            try:
-                start_date = pd.to_datetime(start_date)
-            except ValueError:
-                raise ValueError(f"Invalid start_date format: {start_date}")
-
-        if not isinstance(end_date, datetime):
-            try:
-                end_date = pd.to_datetime(end_date)
-            except ValueError:
-                raise ValueError(f"Invalid end_date format: {end_date}")
-
-        if start_date > end_date:
-            raise ValueError("start_date must be before or equal to end_date")
-
-        working_days: int = 0
-        current_date: datetime = start_date
-
-        while current_date <= end_date:
-            if self.is_working_day(calendar_id, current_date):
-                working_days += 1
-            current_date += timedelta(days=1)
-
-        return working_days
