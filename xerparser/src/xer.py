@@ -79,17 +79,25 @@ class Xer:
 
     def generate_xer_contents(self) -> str:
         """Generate the updated XER file contents from the modified DataFrames."""
-        xer_contents = "ERMHDR\t" + "\t".join([str(x) for x in self.tables['ERMHDR'].iloc[0]]) + "\n"
+        xer_contents = ""
+
+        # Handle ERMHDR specially
+        if 'ERMHDR' in self.tables and not self.tables['ERMHDR'].empty:
+            # If ERMHDR exists, use it and replace empty values with ''
+            ermhdr_row = self.tables['ERMHDR'].iloc[0].fillna('')
+            xer_contents += "ERMHDR\t" + "\t".join([str(x) for x in ermhdr_row]) + "\n"
+        else:
+            # If ERMHDR is missing or empty, create a minimal header based on the provided format
+            xer_contents += "ERMHDR\t16.2\t2023-04-14\tProject\tUSER\tUSERNAME\tdbxDatabaseNoName\tProject Management\tUSD\n"
 
         for table_name, df in self.tables.items():
-            if table_name != 'ERMHDR':
+            if table_name != 'ERMHDR' and not df.empty:
                 xer_contents += f"%T\t{table_name}\n"
                 xer_contents += "%F\t" + "\t".join(df.columns) + "\n"
                 for _, row in df.iterrows():
                     xer_contents += "%R\t" + "\t".join([self._format_value(x) for x in row]) + "\n"
 
         return xer_contents
-
     def _format_value(self, value):
         """Format values for XER output, handling datetime objects."""
         if pd.isna(value):
