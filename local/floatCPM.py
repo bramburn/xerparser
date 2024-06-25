@@ -25,6 +25,8 @@ def main():
 
         # Create an instance of the TotalFloatCPMCalculator and run the calculations
         calculator = TotalFloatCPMCalculator(xer)
+        calculator.set_workday_df(xer.workday_df)
+        calculator.set_exception_df(xer.exception_df)
         critical_path = calculator.calculate_critical_path()
         calculator.update_task_df()
 
