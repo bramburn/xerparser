@@ -1,4 +1,5 @@
 # total_float_method.py
+import logging
 
 import networkx as nx
 import pandas as pd
@@ -8,7 +9,10 @@ from local.libs.working_day_calculator import WorkingDayCalculator
 
 
 class TotalFloatCPMCalculator:
+
     def __init__(self, xer_object):
+        self.logger = logging.getLogger('TotalFloatCPMCalculator')
+        self.logger.setLevel(logging.INFO)
         self.working_day_calculator = None
         self.xer = xer_object
         self.workdays_df = pd.DataFrame(columns=['clndr_id', 'day', 'start_time', 'end_time'])
@@ -52,32 +56,40 @@ class TotalFloatCPMCalculator:
 
     def forward_pass(self):
         project_start = pd.to_datetime(self.xer.project_df['plan_start_date'].iloc[0])
+        self.logger.info("Starting forward pass")
         for node in nx.topological_sort(self.graph):
             predecessors = list(self.graph.predecessors(node))
             if not predecessors:
                 self.early_start[node] = project_start
+                self.logger.info(f"Calculating early start for task {node}: Project start date")
             else:
                 self.early_start[node] = max(
                     self.working_day_calculator.add_working_days(
                         self.early_finish[p],
                         self.graph[p][node]['lag'],
                         self.graph.nodes[node]['calendar_id']
-                    ) or self.early_finish[p]  # Use early_finish[p] if add_working_days returns None
+                    ) or self.early_finish[p]
                     for p in predecessors
                 )
+                self.logger.info(f"Calculating early start for task {node} based on predecessors")
+
             end_date = self.working_day_calculator.add_working_days(
                 self.early_start[node],
                 self.graph.nodes[node]['duration'],
                 self.graph.nodes[node]['calendar_id']
             )
             self.early_finish[node] = end_date if end_date is not None else self.early_start[node]
+            self.logger.info(f"Calculated early finish for task {node}: {self.early_finish[node]}")
+        self.logger.info("Forward pass completed")
 
     def backward_pass(self):
         project_end = max(self.early_finish.values())
+        self.logger.info("Starting backward pass")
         for node in reversed(list(nx.topological_sort(self.graph))):
             successors = list(self.graph.successors(node))
             if not successors:
                 self.late_finish[node] = project_end
+                self.logger.info(f"Calculating late finish for task {node}: Project end date")
             else:
                 late_finish_candidates = []
                 for s in successors:
@@ -94,8 +106,9 @@ class TotalFloatCPMCalculator:
                 if late_finish_candidates:
                     self.late_finish[node] = min(late_finish_candidates)
                 else:
-                    # If no valid late finish can be calculated, use the project end date
                     self.late_finish[node] = project_end
+
+                self.logger.info(f"Calculating late finish for task {node} based on successors")
 
             late_start = self.working_day_calculator.add_working_days(
                 self.late_finish[node],
@@ -103,6 +116,8 @@ class TotalFloatCPMCalculator:
                 self.graph.nodes[node]['calendar_id']
             )
             self.late_start[node] = late_start if late_start is not None else self.late_finish[node]
+            self.logger.info(f"Calculated late start for task {node}: {self.late_start[node]}")
+        self.logger.info("Backward pass completed")
     def calculate_total_float(self):
         for node in self.graph.nodes:
             self.total_float[node] = self.working_day_calculator.get_working_days_between(

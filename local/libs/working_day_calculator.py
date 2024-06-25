@@ -8,6 +8,28 @@ class WorkingDayCalculator:
     def __init__(self, workdays_df, exceptions_df):
         self.workdays_df = workdays_df.copy() if not workdays_df.empty else pd.DataFrame()
         self.exceptions_df = exceptions_df.copy() if not exceptions_df.empty else pd.DataFrame()
+        self.exceptions_dict = self._create_exception_dict(exceptions_df)
+        self.workdays_dict = self._create_workdays_dict(workdays_df)
+
+    def _create_exception_dict(self, exceptions_df):
+        # Create a dictionary for exception dates
+        exceptions_dict = {}
+        for _, row in exceptions_df.iterrows():
+            key = (str(row['clndr_id']), row['exception_date'])
+            exceptions_dict[key] = (row['start_time'], row['end_time']) if pd.notna(row['start_time']) and pd.notna(
+                row['end_time']) else None
+        return exceptions_dict
+
+    def _create_workdays_dict(self, workdays_df):
+        # Create a dictionary for regular workdays
+        workdays_dict = {}
+        for _, row in workdays_df.iterrows():
+            key = (str(row['clndr_id']), int(row['day']))
+            if key not in workdays_dict:
+                workdays_dict[key] = []
+            if pd.notna(row['start_time']) and pd.notna(row['end_time']):
+                workdays_dict[key].append((row['start_time'], row['end_time']))
+        return workdays_dict
 
     def is_working_day(self, date_to_check, calendar_id):
         calendar_id = str(calendar_id)
