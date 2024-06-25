@@ -73,6 +73,7 @@ class CalendarParser:
             except ValueError as e:
                 self.logger.warning(f"Invalid exception data: {match.group()}. Error: {str(e)}")
         return exceptions
+
     def _parse_hours(self, hours_str: str) -> List[Tuple[time, time]]:
         hour_pattern = r's\|(\d{2}:\d{2})\|f\|(\d{2}:\d{2})'
         hours: List[Tuple[time, time]] = []
