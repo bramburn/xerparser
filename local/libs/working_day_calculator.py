@@ -39,35 +39,17 @@ class WorkingDayCalculator:
             return False
 
         # Check exceptions first
-        if 'clndr_id' in self.exceptions_df.columns and 'exception_date' in self.exceptions_df.columns:
-            exception_rows = self.exceptions_df[
-                (self.exceptions_df['clndr_id'] == calendar_id) &
-                (self.exceptions_df['exception_date'] == date_to_check)
-                ]
-            if not exception_rows.empty:
-                # Check if there are any working hours defined for this exception date
-                has_working_hours = exception_rows[
-                                        (exception_rows['start_time'].notna()) &
-                                        (exception_rows['end_time'].notna())
-                                        ].shape[0] > 0
-                return has_working_hours
+        exception = self.exceptions_dict.get((calendar_id, date_to_check), None)
+        if exception is not None:
+            return exception is not None
+
+        if len(self.workdays_dict) == 0:
+            return True
 
         # If not an exception, check regular workdays
-        if 'clndr_id' in self.workdays_df.columns and 'day' in self.workdays_df.columns:
-            weekday = date_to_check.isoweekday()  # Get weekday as 1-7
-            workday_rows = self.workdays_df[
-                (self.workdays_df['clndr_id'] == calendar_id) &
-                (self.workdays_df['day'] == weekday)
-                ]
-            if not workday_rows.empty:
-                # Check if there are any working hours defined for this day
-                has_working_hours = workday_rows[
-                                        (workday_rows['start_time'].notna()) &
-                                        (workday_rows['end_time'].notna())
-                                        ].shape[0] > 0
-                return has_working_hours
-
-        return False
+        weekday = date_to_check.isoweekday()  # Get weekday as 1-7
+        workday = self.workdays_dict.get((calendar_id, weekday), [])
+        return len(workday) > 0
 
     def add_working_days(self, start_date, days, calendar_id):
         calendar_id = str(calendar_id)
@@ -75,23 +57,34 @@ class WorkingDayCalculator:
         if start_date is None:
             return None
 
+        # Check if start_date is within valid range
+        if start_date.year < 1 or start_date.year > 9999:
+            raise ValueError("Start date is out of valid range")
+
         try:
             days = int(days)
         except ValueError:
             logging.warning(f"Invalid days value: {days}")
             return None
 
+        # Limit the number of days to a reasonable value
+        if abs(days) > 365 * 3:  # Limit to 100 years
+            raise ValueError("Number of days is too large")
+
         current_date = start_date
         remaining_days = abs(days)
         day_increment = 1 if days >= 0 else -1
 
+        count = 0
         while remaining_days > 0:
             current_date += timedelta(days=day_increment)
             if self.is_working_day(current_date, calendar_id):
                 remaining_days -= 1
+            if count > 365:
+                continue
+            count = count + 1
 
         return current_date
-
     def get_working_days_between(self, start_date, end_date, calendar_id):
         calendar_id = str(calendar_id)
         start_date = self._ensure_date(start_date)
@@ -111,7 +104,12 @@ class WorkingDayCalculator:
         if isinstance(date_obj, (datetime, date)):
             return date_obj.date() if isinstance(date_obj, datetime) else date_obj
         try:
-            return pd.to_datetime(date_obj).date()
+            converted_date = pd.to_datetime(date_obj)
+            if pd.notnull(converted_date):
+                return converted_date.date()
+            else:
+                logging.warning(f"Failed to convert to a valid date: {date_obj}")
+                return None
         except ValueError:
             logging.warning(f"Failed to convert to date: {date_obj}")
             return None
