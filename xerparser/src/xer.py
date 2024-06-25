@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import BinaryIO
 from datetime import datetime
+import json
 
 import numpy as np
 import pandas as pd
@@ -8,6 +9,7 @@ import pandas as pd
 from xerparser import CODEC, file_reader, parser
 from xerparser.schemas.task import calculate_completion, calculate_duration, calculate_remaining_days
 from xerparser.schemas.taskpred import calculate_lag_days
+from calendar_parser import CalendarParser
 
 
 class Xer:
@@ -49,6 +51,22 @@ class Xer:
             task_pred = xer_data.get('TASKPRED', None)
             if task_pred is not None:
                 task_pred['lag_days'] = task_pred.apply(calculate_lag_days, axis=1)
+
+            # Process CALENDAR table using CalendarParser
+            calendar_df = xer_data.get('CALENDAR', None)
+            if calendar_df is not None:
+                calendar_parser = CalendarParser(calendar_df)
+                calendar_parser.parse_calendars()
+
+                # Add parsed calendar data back to the DataFrame
+                calendar_df['parsed_workdays'] = calendar_df['clndr_id'].map(
+                    lambda x: json.dumps(calendar_parser.calendars[x]['workdays'])
+                )
+                calendar_df['parsed_exceptions'] = calendar_df['clndr_id'].map(
+                    lambda x: json.dumps({str(k): v for k, v in calendar_parser.calendars[x]['exceptions'].items()})
+                )
+
+                xer_data['CALENDAR'] = calendar_df
 
             return xer_data
         else:
@@ -98,6 +116,7 @@ class Xer:
                     xer_contents += "%R\t" + "\t".join([self._format_value(x) for x in row]) + "\n"
 
         return xer_contents
+
     def _format_value(self, value):
         """Format values for XER output, handling datetime objects."""
         if pd.isna(value):
