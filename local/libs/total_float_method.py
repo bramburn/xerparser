@@ -1,7 +1,9 @@
+# total_float_method.py
+
 import networkx as nx
 from datetime import datetime, timedelta
 import pandas as pd
-
+from working_day_calculator import WorkingDayCalculator
 
 class TotalFloatCPMCalculator:
     def __init__(self, xer_object):
@@ -13,16 +15,16 @@ class TotalFloatCPMCalculator:
         self.late_finish = {}
         self.total_float = {}
         self.critical_path = []
+        self.working_day_calculator = WorkingDayCalculator(self.xer.calendar_df)
 
     def build_graph(self):
         for _, task in self.xer.task_df.iterrows():
             try:
                 duration = pd.to_timedelta(pd.to_numeric(task['target_drtn_hr_cnt']), unit='h').days
             except ValueError:
-                # Handle cases where conversion fails (e.g., non-numeric strings)
                 print(f"Warning: Invalid duration for task {task['task_id']}: {task['target_drtn_hr_cnt']}")
                 duration = 0
-            self.graph.add_node(task['task_id'], duration=duration)
+            self.graph.add_node(task['task_id'], duration=duration, calendar_id=task['clndr_id'])
 
         for _, pred in self.xer.taskpred_df.iterrows():
             try:
@@ -33,6 +35,7 @@ class TotalFloatCPMCalculator:
                     f"Warning: Invalid lag for relationship {pred['pred_task_id']} -> {pred['task_id']}: {pred['lag_hr_cnt']}")
                 lag = 0
             self.graph.add_edge(pred['pred_task_id'], pred['task_id'], lag=lag)
+
     def forward_pass(self):
         project_start = pd.to_datetime(self.xer.project_df['plan_start_date'].iloc[0])
         for node in nx.topological_sort(self.graph):
@@ -41,10 +44,18 @@ class TotalFloatCPMCalculator:
                 self.early_start[node] = project_start
             else:
                 self.early_start[node] = max(
-                    self.early_finish[p] + timedelta(days=self.graph[p][node]['lag'])
+                    self.working_day_calculator.add_working_days(
+                        self.early_finish[p],
+                        self.graph[p][node]['lag'],
+                        self.graph.nodes[node]['calendar_id']
+                    )
                     for p in predecessors
                 )
-            self.early_finish[node] = self.early_start[node] + timedelta(days=self.graph.nodes[node]['duration'])
+            self.early_finish[node] = self.working_day_calculator.add_working_days(
+                self.early_start[node],
+                self.graph.nodes[node]['duration'],
+                self.graph.nodes[node]['calendar_id']
+            )
 
     def backward_pass(self):
         project_end = max(self.early_finish.values())
@@ -54,15 +65,26 @@ class TotalFloatCPMCalculator:
                 self.late_finish[node] = project_end
             else:
                 self.late_finish[node] = min(
-                    self.late_start[s] - timedelta(days=self.graph[node][s]['lag'])
+                    self.working_day_calculator.add_working_days(
+                        self.late_start[s],
+                        -self.graph[node][s]['lag'],
+                        self.graph.nodes[node]['calendar_id']
+                    )
                     for s in successors
                 )
-            self.late_start[node] = self.late_finish[node] - timedelta(days=self.graph.nodes[node]['duration'])
+            self.late_start[node] = self.working_day_calculator.add_working_days(
+                self.late_finish[node],
+                -self.graph.nodes[node]['duration'],
+                self.graph.nodes[node]['calendar_id']
+            )
 
     def calculate_total_float(self):
         for node in self.graph.nodes:
-            self.total_float[node] = (self.late_start[node] - self.early_start[node]).days
-
+            self.total_float[node] = self.working_day_calculator.get_working_days_between(
+                self.early_start[node],
+                self.late_start[node],
+                self.graph.nodes[node]['calendar_id']
+            )
     def determine_critical_path(self, float_threshold=0):
         self.critical_path = [node for node, tf in self.total_float.items() if tf <= float_threshold]
 
