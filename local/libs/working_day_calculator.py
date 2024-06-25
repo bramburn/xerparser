@@ -9,55 +9,43 @@ class WorkingDayCalculator:
         self.workdays_df = workdays_df.copy() if not workdays_df.empty else pd.DataFrame()
         self.exceptions_df = exceptions_df.copy() if not exceptions_df.empty else pd.DataFrame()
 
-        # Create a dictionary for faster lookups
-        self.calendar_dict = self._create_calendar_dict()
-
-    def _create_calendar_dict(self):
-        calendar_dict = {}
-
-        # Process workdays
-        for _, row in self.workdays_df.iterrows():
-            calendar_id = str(row['clndr_id'])
-            day = int(row['day'])  # Assuming 'day' is an integer representing the day of the week
-            if calendar_id not in calendar_dict:
-                calendar_dict[calendar_id] = {'workdays': {}, 'exceptions': {}}
-
-            if day not in calendar_dict[calendar_id]['workdays']:
-                calendar_dict[calendar_id]['workdays'][day] = []
-
-            if pd.notna(row['start_time']) and pd.notna(row['end_time']):
-                calendar_dict[calendar_id]['workdays'][day].append((row['start_time'], row['end_time']))
-
-        # Process exceptions
-        for _, row in self.exceptions_df.iterrows():
-            calendar_id = str(row['clndr_id'])
-            exception_date = row['exception_date'].date()
-            if calendar_id not in calendar_dict:
-                calendar_dict[calendar_id] = {'workdays': {}, 'exceptions': {}}
-
-            if exception_date not in calendar_dict[calendar_id]['exceptions']:
-                calendar_dict[calendar_id]['exceptions'][exception_date] = []
-
-            if pd.notna(row['start_time']) and pd.notna(row['end_time']):
-                calendar_dict[calendar_id]['exceptions'][exception_date].append((row['start_time'], row['end_time']))
-
-        return calendar_dict
-
     def is_working_day(self, date_to_check, calendar_id):
         calendar_id = str(calendar_id)
-        calendar = self.calendar_dict.get(calendar_id)
-        if not calendar:
-            logging.warning(f"Calendar {calendar_id} not found")
-            return False
 
         date_to_check = self._ensure_date(date_to_check)
         if date_to_check is None:
             return False
 
-        if date_to_check in calendar['exceptions']:
-            return bool(calendar['exceptions'][date_to_check])
+        # Check exceptions first
+        if 'clndr_id' in self.exceptions_df.columns and 'exception_date' in self.exceptions_df.columns:
+            exception_rows = self.exceptions_df[
+                (self.exceptions_df['clndr_id'] == calendar_id) &
+                (self.exceptions_df['exception_date'] == date_to_check)
+                ]
+            if not exception_rows.empty:
+                # Check if there are any working hours defined for this exception date
+                has_working_hours = exception_rows[
+                                        (exception_rows['start_time'].notna()) &
+                                        (exception_rows['end_time'].notna())
+                                        ].shape[0] > 0
+                return has_working_hours
 
-        return bool(calendar['workdays'].get(str(date_to_check.weekday() + 1)))
+        # If not an exception, check regular workdays
+        if 'clndr_id' in self.workdays_df.columns and 'day' in self.workdays_df.columns:
+            weekday = date_to_check.isoweekday()  # Get weekday as 1-7
+            workday_rows = self.workdays_df[
+                (self.workdays_df['clndr_id'] == calendar_id) &
+                (self.workdays_df['day'] == weekday)
+                ]
+            if not workday_rows.empty:
+                # Check if there are any working hours defined for this day
+                has_working_hours = workday_rows[
+                                        (workday_rows['start_time'].notna()) &
+                                        (workday_rows['end_time'].notna())
+                                        ].shape[0] > 0
+                return has_working_hours
+
+        return False
 
     def add_working_days(self, start_date, days, calendar_id):
         calendar_id = str(calendar_id)
@@ -96,26 +84,6 @@ class WorkingDayCalculator:
         working_days = sum(self.is_working_day(date, calendar_id) for date in date_range)
 
         return working_days
-
-    def get_working_hours_per_day(self, date_to_check, calendar_id):
-        calendar_id = str(calendar_id)
-        calendar = self.calendar_dict.get(calendar_id)
-        if not calendar:
-            logging.warning(f"Calendar {calendar_id} not found")
-            return 0
-
-        date_to_check = self._ensure_date(date_to_check)
-        if date_to_check is None:
-            return 0
-
-        if date_to_check in calendar['exceptions']:
-            time_tuples = calendar['exceptions'][date_to_check]
-        else:
-            time_tuples = calendar['workdays'].get(str(date_to_check.weekday() + 1), [])
-
-        total_hours = sum((end.hour - start.hour + (end.minute - start.minute) / 60)
-                          for start, end in time_tuples if start and end)
-        return total_hours
 
     def _ensure_date(self, date_obj):
         if isinstance(date_obj, (datetime, date)):

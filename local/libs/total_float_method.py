@@ -11,8 +11,8 @@ class TotalFloatCPMCalculator:
     def __init__(self, xer_object):
         self.working_day_calculator = None
         self.xer = xer_object
-        self.workdays_df = pd.DataFrame()
-        self.exception_df = pd.DataFrame()
+        self.workdays_df = pd.DataFrame(columns=['clndr_id', 'day', 'start_time', 'end_time'])
+        self.exceptions_df = pd.DataFrame(columns=['clndr_id', 'exception_date', 'start_time', 'end_time'])
         self.graph = nx.DiGraph()
         self.early_start = {}
         self.early_finish = {}
@@ -22,10 +22,10 @@ class TotalFloatCPMCalculator:
         self.critical_path = []
 
     def set_workday_df(self,workday):
-        self.workdays_df = workday
+        self.workdays_df = workday.copy()
 
     def set_exception_df(self, exception):
-        self.exceptions_df = exception
+        self.exceptions_df = exception.copy()
 
 
 

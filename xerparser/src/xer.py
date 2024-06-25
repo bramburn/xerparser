@@ -28,8 +28,8 @@ class Xer:
         self.projwbs_df = self.tables.get('PROJWBS', None)
         self.calendar_df = self.tables.get('CALENDAR', None)
         self.account_df = self.tables.get('ACCOUNT', None)
-        self.workday_df = pd.DataFrame()
-        self.exception_df = pd.DataFrame()
+        self.workdays_df = pd.DataFrame(columns=['clndr_id', 'day', 'start_time', 'end_time'])
+        self.exceptions_df = pd.DataFrame(columns=['clndr_id', 'exception_date', 'start_time', 'end_time'])
 
     def _parse_xer_data(self, xer_file_contents: str) -> dict[str, pd.DataFrame]:
         """Parse the XER file contents and return the table data as DataFrames."""
