@@ -4,8 +4,17 @@ import logging
 
 
 def main():
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
     logger = logging.getLogger(__name__)
+    # Create a file handler to write log messages to a file
+    error_file_handler = logging.FileHandler('error.log')
+    error_file_handler.setLevel(logging.ERROR)
+
+    # Create a formatter and set the format for the log messages
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    error_file_handler.setFormatter(formatter)
+
+    logger.addHandler(error_file_handler)
 
     file = r"updated.xer"
     try:
