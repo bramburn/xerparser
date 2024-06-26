@@ -24,25 +24,55 @@ class TotalFloatCPMCalculator:
         self.critical_path = []
 
     def apply_activity_constraints(self, node, is_forward_pass=True):
-        cstr_type = self.graph.nodes[node]['cstr_type']
-        cstr_date = self.graph.nodes[node]['cstr_date']
-        cstr_type2 = self.graph.nodes[node]['cstr_type2']
-        cstr_date2 = self.graph.nodes[node]['cstr_date2']
+        # Define valid constraint types
+        VALID_CONSTRAINTS = {'CS_ALAP', 'CS_MEO', 'CS_MANDFIN', 'CS_MEOA', 'CS_MEOB',
+                             'CS_MANDSTART', 'CS_MSO', 'CS_MSOA', 'CS_MSOB'}
 
-        early_start = self.early_start[node]
-        late_finish = self.late_finish.get(node, None)  # Use .get() to avoid KeyError
+        # Helper function to safely get node attributes
+        def safe_get_attr(attr_name, default=None):
+            return self.graph.nodes[node].get(attr_name, default)
+
+        cstr_type = safe_get_attr('cstr_type')
+        cstr_date = safe_get_attr('cstr_date')
+        cstr_type2 = safe_get_attr('cstr_type2')
+        cstr_date2 = safe_get_attr('cstr_date2')
+
+        early_start = self.early_start.get(node)
+        late_finish = self.late_finish.get(node)
 
         def apply_constraint(constraint_type, constraint_date, early_start, late_finish):
-            if pd.isna(constraint_date):
+            # Check for missing or invalid constraint type
+            if not constraint_type or constraint_type not in VALID_CONSTRAINTS:
+                self.logger.warning(f"Invalid or missing constraint type for task {node}: {constraint_type}")
                 return early_start, late_finish
 
-            constraint_date = pd.to_datetime(constraint_date).date()
+            # Check for missing constraint date
+            if pd.isna(constraint_date):
+                self.logger.warning(f"Missing constraint date for task {node}, constraint type: {constraint_type}")
+                return early_start, late_finish
 
+            try:
+                # Convert constraint_date to Timestamp for consistent comparison
+                constraint_date = pd.Timestamp(constraint_date).normalize()
+            except (ValueError, TypeError):
+                self.logger.error(f"Invalid constraint date for task {node}: {constraint_date}")
+                return early_start, late_finish
+
+            # Ensure early_start and late_finish are Timestamps
+            try:
+                if early_start is not None and not pd.isna(early_start):
+                    early_start = pd.Timestamp(early_start).normalize()
+                if late_finish is not None and not pd.isna(late_finish):
+                    late_finish = pd.Timestamp(late_finish).normalize()
+            except (ValueError, TypeError) as e:
+                self.logger.error(f"Invalid early_start or late_finish for task {node}: {str(e)}")
+                return early_start, late_finish
+
+            # Apply constraints (this part remains largely the same)
             if constraint_type == 'CS_ALAP':
                 pass  # No action needed for As Late as Possible
             elif constraint_type in ['CS_MEO', 'CS_MANDFIN']:
-                if late_finish is not None:
-                    late_finish = constraint_date
+                late_finish = constraint_date
             elif constraint_type == 'CS_MEOA':
                 if late_finish is not None:
                     late_finish = max(late_finish, constraint_date)
@@ -52,29 +82,39 @@ class TotalFloatCPMCalculator:
             elif constraint_type in ['CS_MANDSTART', 'CS_MSO']:
                 early_start = constraint_date
             elif constraint_type == 'CS_MSOA':
-                early_start = max(early_start, constraint_date)
+                if early_start is not None:
+                    early_start = max(early_start, constraint_date)
             elif constraint_type == 'CS_MSOB':
-                early_start = min(early_start, constraint_date)
+                if early_start is not None:
+                    early_start = min(early_start, constraint_date)
 
             return early_start, late_finish
 
-        # Apply primary constraint
-        early_start, late_finish = apply_constraint(cstr_type, cstr_date, early_start, late_finish)
+        # Apply primary constraint only if cstr_type is valid
+        if cstr_type:
+            early_start, late_finish = apply_constraint(cstr_type, cstr_date, early_start, late_finish)
 
-        # Apply secondary constraint
-        early_start, late_finish = apply_constraint(cstr_type2, cstr_date2, early_start, late_finish)
+        # Apply secondary constraint only if cstr_type2 is valid
+        if cstr_type2:
+            early_start, late_finish = apply_constraint(cstr_type2, cstr_date2, early_start, late_finish)
 
         # Check for conflicts only if we have both early_start and late_finish
-        if early_start is not None and late_finish is not None and early_start > late_finish:
-            self.logger.warning(f"Conflict detected for task {node}: Early start is later than late finish")
+        if early_start is not None and late_finish is not None and not pd.isna(early_start) and not pd.isna(
+                late_finish):
+            if early_start > late_finish:
+                self.logger.warning(f"Conflict detected for task {node}: Early start is later than late finish")
 
         # Check if constraint violates predecessor relationships
         if is_forward_pass:
             for pred in self.graph.predecessors(node):
-                if early_start < self.early_finish[pred]:
-                    self.logger.warning(f"Constraint for task {node} violates predecessor {pred} relationship")
+                if early_start is not None and self.early_finish[pred] is not None:
+                    if not pd.isna(early_start) and not pd.isna(self.early_finish[pred]):
+                        if pd.Timestamp(early_start).normalize() < pd.Timestamp(self.early_finish[pred]).normalize():
+                            self.logger.warning(f"Constraint for task {node} violates predecessor {pred} relationship")
 
         return early_start, late_finish
+
+
     def set_workday_df(self, workday):
         self.workdays_df = workday.copy()
 
