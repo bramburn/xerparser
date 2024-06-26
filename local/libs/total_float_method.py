@@ -4,7 +4,7 @@ import networkx as nx
 import pandas as pd
 from local.libs.calendar_parser import CalendarParser
 from local.libs.working_day_calculator import WorkingDayCalculator
-
+from pandas import Timestamp
 
 class TotalFloatCPMCalculator:
 
@@ -37,8 +37,8 @@ class TotalFloatCPMCalculator:
         cstr_type2 = safe_get_attr('cstr_type2')
         cstr_date2 = safe_get_attr('cstr_date2')
 
-        early_start = self.early_start.get(node)
-        late_finish = self.late_finish.get(node)
+        early_start = pd.Timestamp(self.early_start.get(node)) if self.early_start.get(node) else None
+        late_finish = pd.Timestamp(self.late_finish.get(node)) if self.late_finish.get(node) else None
 
         def apply_constraint(constraint_type, constraint_date, early_start, late_finish):
             # Check for missing or invalid constraint type
@@ -47,28 +47,31 @@ class TotalFloatCPMCalculator:
                 return early_start, late_finish
 
             # Check for missing constraint date
-            if pd.isna(constraint_date):
+            if pd.isnull(constraint_date):
                 self.logger.warning(f"Missing constraint date for task {node}, constraint type: {constraint_type}")
                 return early_start, late_finish
 
             try:
-                # Convert constraint_date to Timestamp for consistent comparison
-                constraint_date = pd.Timestamp(constraint_date).normalize()
+                # Convert constraint_date to Timestamp
+                constraint_date = pd.Timestamp(constraint_date)
+                if pd.isnull(constraint_date):
+                    return early_start, late_finish
+                constraint_date = constraint_date.normalize()
             except (ValueError, TypeError):
                 self.logger.error(f"Invalid constraint date for task {node}: {constraint_date}")
                 return early_start, late_finish
 
             # Ensure early_start and late_finish are Timestamps
             try:
-                if early_start is not None and not pd.isna(early_start):
+                if early_start is not None and not pd.isnull(early_start):
                     early_start = pd.Timestamp(early_start).normalize()
-                if late_finish is not None and not pd.isna(late_finish):
+                if late_finish is not None and not pd.isnull(late_finish):
                     late_finish = pd.Timestamp(late_finish).normalize()
             except (ValueError, TypeError) as e:
                 self.logger.error(f"Invalid early_start or late_finish for task {node}: {str(e)}")
                 return early_start, late_finish
 
-            # Apply constraints (this part remains largely the same)
+            # Apply constraints
             if constraint_type == 'CS_ALAP':
                 pass  # No action needed for As Late as Possible
             elif constraint_type in ['CS_MEO', 'CS_MANDFIN']:
@@ -89,7 +92,6 @@ class TotalFloatCPMCalculator:
                     early_start = min(early_start, constraint_date)
 
             return early_start, late_finish
-
         # Apply primary constraint only if cstr_type is valid
         if cstr_type:
             early_start, late_finish = apply_constraint(cstr_type, cstr_date, early_start, late_finish)
@@ -162,13 +164,13 @@ class TotalFloatCPMCalculator:
                 for pred in predecessors:
                     taskpred_type = self.graph[pred][node]['taskpred_type']
                     if taskpred_type == 'PR_FS':  # FS: Finish-to-Start
-                        es_list.append(self.early_finish[pred] + self.graph[pred][node]['lag'])
+                        es_list.append(pd.Timestamp(self.early_finish[pred]) + self.graph[pred][node]['lag'])
                     elif taskpred_type == 'PR_SS':  # SS: Start-to-Start
-                        es_list.append(self.early_start[pred] + self.graph[pred][node]['lag'])
+                        es_list.append(pd.Timestamp(self.early_start[pred]) + self.graph[pred][node]['lag'])
                     elif taskpred_type == 'PR_SF':  # SF: Start-to-Finish
-                        ef_list.append(self.early_start[pred] + self.graph[pred][node]['lag'])
+                        ef_list.append(pd.Timestamp(self.early_start[pred]) + self.graph[pred][node]['lag'])
                     elif taskpred_type == 'PR_FF':  # FF: Finish-to-Finish
-                        ef_list.append(self.early_finish[pred] + self.graph[pred][node]['lag'])
+                        ef_list.append(pd.Timestamp(self.early_finish[pred]) + self.graph[pred][node]['lag'])
                 if es_list:
                     self.early_start[node] = max(es_list)
                 if ef_list:
@@ -177,14 +179,13 @@ class TotalFloatCPMCalculator:
             self.early_start[node], _ = self.apply_activity_constraints(node, is_forward_pass=True)
             # Calculate early finish based on early start and duration
             self.early_finish[node] = self.working_day_calculator.add_working_days(
-                self.early_start[node],
+                pd.Timestamp(self.early_start[node]),
                 self.graph.nodes[node]['duration'],
                 self.graph.nodes[node]['calendar_id']
             )
         self.logger.info("Forward pass completed")
-
     def backward_pass(self):
-        project_end = max(self.early_finish.values())
+        project_end = pd.Timestamp(max(self.early_finish.values()))
         self.logger.info("Starting backward pass")
 
         # Initialize late finish times for all nodes
