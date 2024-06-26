@@ -177,11 +177,13 @@ class TotalFloatCPMCalculator:
                     self.early_finish[node] = act_end
                 else:
                     # Task is in progress
-                    self.early_finish[node] = max(self.data_date, self.working_day_calculator.add_working_days(
+                    # Convert the result of add_working_days to Timestamp
+                    calculated_finish = self.working_day_calculator.add_working_days(
                         act_start,
                         self.graph.nodes[node]['duration'],
                         self.graph.nodes[node]['calendar_id']
-                    ))
+                    )
+                    self.early_finish[node] = max(self.data_date, pd.Timestamp(calculated_finish))
             else:
                 # Task hasn't started yet
                 predecessors = list(self.graph.predecessors(node))
@@ -217,11 +219,12 @@ class TotalFloatCPMCalculator:
                 self.early_start[node], _ = self.apply_activity_constraints(node, is_forward_pass=True)
 
                 # Calculate early finish
-                self.early_finish[node] = self.working_day_calculator.add_working_days(
+                calculated_finish = self.working_day_calculator.add_working_days(
                     self.early_start[node],
                     self.graph.nodes[node]['duration'],
                     self.graph.nodes[node]['calendar_id']
                 )
+                self.early_finish[node] = pd.Timestamp(calculated_finish)
 
         self.logger.info("Forward pass completed")
 
@@ -247,11 +250,12 @@ class TotalFloatCPMCalculator:
             elif pd.notnull(act_start) and act_start <= self.data_date:
                 # Task is in progress
                 self.late_start[node] = act_start
-                self.late_finish[node] = max(self.data_date, self.working_day_calculator.add_working_days(
+                calculated_finish = self.working_day_calculator.add_working_days(
                     act_start,
                     self.graph.nodes[node]['duration'],
                     self.graph.nodes[node]['calendar_id']
-                ))
+                )
+                self.late_finish[node] = max(pd.Timestamp(self.data_date), pd.Timestamp(calculated_finish))
             else:
                 # Task hasn't started yet
                 successors = list(self.graph.successors(node))
@@ -285,16 +289,17 @@ class TotalFloatCPMCalculator:
                 _, self.late_finish[node] = self.apply_activity_constraints(node, is_forward_pass=False)
 
                 # Calculate late start
-                self.late_start[node] = self.working_day_calculator.add_working_days(
+                calculated_start = self.working_day_calculator.add_working_days(
                     self.late_finish[node],
                     -self.graph.nodes[node]['duration'],
                     self.graph.nodes[node]['calendar_id']
                 )
+                self.late_start[node] = pd.Timestamp(calculated_start)  # Ensure late_start is a Timestamp
 
             # Ensure late dates are not earlier than data date for future tasks
             if pd.isnull(act_start) or act_start > self.data_date:
-                self.late_start[node] = max(self.late_start[node], self.data_date)
-                self.late_finish[node] = max(self.late_finish[node], self.data_date)
+                self.late_start[node] = max(pd.Timestamp(self.late_start[node]), pd.Timestamp(self.data_date))
+                self.late_finish[node] = max(pd.Timestamp(self.late_finish[node]), pd.Timestamp(self.data_date))
 
         self.logger.info("Backward pass completed")
     def calculate_total_float(self):
