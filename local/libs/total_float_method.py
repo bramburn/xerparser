@@ -6,6 +6,7 @@ from local.libs.calendar_parser import CalendarParser
 from local.libs.working_day_calculator import WorkingDayCalculator
 from pandas import Timestamp
 
+
 class TotalFloatCPMCalculator:
 
     def __init__(self, xer_object):
@@ -22,6 +23,7 @@ class TotalFloatCPMCalculator:
         self.late_finish = {}
         self.total_float = {}
         self.critical_path = []
+        self.data_date = pd.to_datetime(self.xer.project_df['last_recalc_date'].iloc[0])
 
     def apply_activity_constraints(self, node, is_forward_pass=True):
         # Define valid constraint types
@@ -92,6 +94,7 @@ class TotalFloatCPMCalculator:
                     early_start = min(early_start, constraint_date)
 
             return early_start, late_finish
+
         # Apply primary constraint only if cstr_type is valid
         if cstr_type:
             early_start, late_finish = apply_constraint(cstr_type, cstr_date, early_start, late_finish)
@@ -116,7 +119,6 @@ class TotalFloatCPMCalculator:
 
         return early_start, late_finish
 
-
     def set_workday_df(self, workday):
         self.workdays_df = workday.copy()
 
@@ -130,9 +132,20 @@ class TotalFloatCPMCalculator:
             except ValueError:
                 print(f"Warning: Invalid duration for task {task['task_id']}: {task['target_drtn_hr_cnt']}")
                 duration = pd.Timedelta(0, unit='h')
-            self.graph.add_node(task['task_id'], duration=duration.days, calendar_id=task['clndr_id'],
-                                cstr_type=task['cstr_type'], cstr_date=task['cstr_date'],
-                                cstr_type2=task['cstr_type2'], cstr_date2=task['cstr_date2'])
+
+            # Convert act_start_date and act_end_date to datetime
+            act_start_date = pd.to_datetime(task['act_start_date'], errors='coerce')
+            act_end_date = pd.to_datetime(task['act_end_date'], errors='coerce')
+
+            self.graph.add_node(task['task_id'],
+                                duration=duration.days,
+                                calendar_id=task['clndr_id'],
+                                cstr_type=task['cstr_type'],
+                                cstr_date=task['cstr_date'],
+                                cstr_type2=task['cstr_type2'],
+                                cstr_date2=task['cstr_date2'],
+                                act_start_date=act_start_date,
+                                act_end_date=act_end_date)
 
         for _, pred in self.xer.taskpred_df.iterrows():
             try:
@@ -150,92 +163,160 @@ class TotalFloatCPMCalculator:
         # Initialize early start times for all nodes
         for node in self.graph.nodes:
             self.early_start[node] = None
+            self.early_finish[node] = None
 
         for node in nx.topological_sort(self.graph):
-            if self.early_start[node] is None:
-                self.early_start[node] = project_start
+            act_start = self.graph.nodes[node]['act_start_date']
+            act_end = self.graph.nodes[node]['act_end_date']
 
-            predecessors = list(self.graph.predecessors(node))
-            if not predecessors:
-                self.early_start[node] = project_start
+            if pd.notnull(act_start) and act_start <= self.data_date:
+                # Task has started
+                self.early_start[node] = act_start
+                if pd.notnull(act_end) and act_end <= self.data_date:
+                    # Task is completed
+                    self.early_finish[node] = act_end
+                else:
+                    # Task is in progress
+                    self.early_finish[node] = max(self.data_date, self.working_day_calculator.add_working_days(
+                        act_start,
+                        self.graph.nodes[node]['duration'],
+                        self.graph.nodes[node]['calendar_id']
+                    ))
             else:
-                es_list = []
-                ef_list = []
-                for pred in predecessors:
-                    taskpred_type = self.graph[pred][node]['taskpred_type']
-                    if taskpred_type == 'PR_FS':  # FS: Finish-to-Start
-                        es_list.append(pd.Timestamp(self.early_finish[pred]) + self.graph[pred][node]['lag'])
-                    elif taskpred_type == 'PR_SS':  # SS: Start-to-Start
-                        es_list.append(pd.Timestamp(self.early_start[pred]) + self.graph[pred][node]['lag'])
-                    elif taskpred_type == 'PR_SF':  # SF: Start-to-Finish
-                        ef_list.append(pd.Timestamp(self.early_start[pred]) + self.graph[pred][node]['lag'])
-                    elif taskpred_type == 'PR_FF':  # FF: Finish-to-Finish
-                        ef_list.append(pd.Timestamp(self.early_finish[pred]) + self.graph[pred][node]['lag'])
-                if es_list:
-                    self.early_start[node] = max(es_list)
-                if ef_list:
-                    self.early_finish[node] = max(ef_list)
-            # Apply constraints after calculating early start and before calculating early finish
-            self.early_start[node], _ = self.apply_activity_constraints(node, is_forward_pass=True)
-            # Calculate early finish based on early start and duration
-            self.early_finish[node] = self.working_day_calculator.add_working_days(
-                pd.Timestamp(self.early_start[node]),
-                self.graph.nodes[node]['duration'],
-                self.graph.nodes[node]['calendar_id']
-            )
+                # Task hasn't started yet
+                predecessors = list(self.graph.predecessors(node))
+                if not predecessors:
+                    self.early_start[node] = max(project_start, self.data_date)
+                else:
+                    pred_finish_dates = []
+                    for pred in predecessors:
+                        if self.early_finish[pred] is None:
+                            self.logger.warning(f"Predecessor {pred} of {node} has no early finish date.")
+                            continue
+                        pred_finish = self.early_finish[pred]
+                        taskpred_type = self.graph[pred][node]['taskpred_type']
+                        lag = self.graph[pred][node]['lag']
+
+                        if taskpred_type == 'PR_FS':  # Finish-to-Start
+                            pred_finish_dates.append(pred_finish + lag)
+                        elif taskpred_type == 'PR_SS':  # Start-to-Start
+                            pred_finish_dates.append(self.early_start[pred] + lag)
+                        elif taskpred_type == 'PR_FF':  # Finish-to-Finish
+                            pred_finish_dates.append(
+                                pred_finish + lag - pd.Timedelta(days=self.graph.nodes[node]['duration']))
+                        elif taskpred_type == 'PR_SF':  # Start-to-Finish
+                            pred_finish_dates.append(
+                                self.early_start[pred] + lag - pd.Timedelta(days=self.graph.nodes[node]['duration']))
+
+                    if pred_finish_dates:
+                        self.early_start[node] = max(max(pred_finish_dates), self.data_date)
+                    else:
+                        self.early_start[node] = max(project_start, self.data_date)
+
+                # Apply constraints
+                self.early_start[node], _ = self.apply_activity_constraints(node, is_forward_pass=True)
+
+                # Calculate early finish
+                self.early_finish[node] = self.working_day_calculator.add_working_days(
+                    self.early_start[node],
+                    self.graph.nodes[node]['duration'],
+                    self.graph.nodes[node]['calendar_id']
+                )
+
         self.logger.info("Forward pass completed")
+
     def backward_pass(self):
-        project_end = pd.Timestamp(max(self.early_finish.values()))
         self.logger.info("Starting backward pass")
+
+        # Find the latest early finish date as the project end date
+        project_end = max(self.early_finish.values())
 
         # Initialize late finish times for all nodes
         for node in self.graph.nodes:
+            self.late_start[node] = None
             self.late_finish[node] = None
 
-        # Set the late finish for nodes without successors
-        for node in self.graph.nodes:
-            if not list(self.graph.successors(node)):
-                self.late_finish[node] = project_end
+        for node in reversed(list(nx.topological_sort(self.graph))):
+            act_start = self.graph.nodes[node]['act_start_date']
+            act_end = self.graph.nodes[node]['act_end_date']
 
-                # Now proceed with the rest of the backward
-                # Now proceed with the rest of the backward pass
-                for node in reversed(list(nx.topological_sort(self.graph))):
-                    if self.late_finish[node] is None:
-                        successors = list(self.graph.successors(node))
-                        lf_list = []
-                        for succ in successors:
-                            taskpred_type = self.graph[node][succ]['taskpred_type']
-                            if taskpred_type == 'PR_FS':  # FS: Finish-to-Start
-                                lf_list.append(self.late_start[succ] - self.graph[node][succ]['lag'])
-                            elif taskpred_type == 'PR_SS':  # SS: Start-to-Start
-                                lf_list.append(self.late_start[succ] - self.graph[node][succ]['lag'])
-                            elif taskpred_type == 'PR_SF':  # SF: Start-to-Finish
-                                lf_list.append(self.late_finish[succ] - self.graph[node][succ]['lag'])
-                            elif taskpred_type == 'PR_FF':  # FF: Finish-to-Finish
-                                lf_list.append(self.late_finish[succ] - self.graph[node][succ]['lag'])
-                        if lf_list:
-                            self.late_finish[node] = min(lf_list)
-                        else:
-                            self.late_finish[node] = project_end
-                    # Apply constraints after calculating late finish and before calculating late start
-                    _, self.late_finish[node] = self.apply_activity_constraints(node, is_forward_pass=False)
-                    self.late_start[node] = self.working_day_calculator.add_working_days(
-                        self.late_finish[node],
-                        -self.graph.nodes[node]['duration'],
-                        self.graph.nodes[node]['calendar_id']
-                    )
-                self.logger.info("Backward pass completed")
+            if pd.notnull(act_end) and act_end <= self.data_date:
+                # Task is completed
+                self.late_finish[node] = act_end
+                self.late_start[node] = act_start
+            elif pd.notnull(act_start) and act_start <= self.data_date:
+                # Task is in progress
+                self.late_start[node] = act_start
+                self.late_finish[node] = max(self.data_date, self.working_day_calculator.add_working_days(
+                    act_start,
+                    self.graph.nodes[node]['duration'],
+                    self.graph.nodes[node]['calendar_id']
+                ))
+            else:
+                # Task hasn't started yet
+                successors = list(self.graph.successors(node))
+                if not successors:
+                    self.late_finish[node] = project_end
+                else:
+                    succ_dates = []
+                    for succ in successors:
+                        if self.late_start[succ] is None:
+                            self.logger.warning(f"Successor {succ} of {node} has no late start date.")
+                            continue
+                        succ_start = self.late_start[succ]
+                        taskpred_type = self.graph[node][succ]['taskpred_type']
+                        lag = self.graph[node][succ]['lag']
 
+                        if taskpred_type == 'PR_FS':  # Finish-to-Start
+                            succ_dates.append(succ_start - lag)
+                        elif taskpred_type == 'PR_SS':  # Start-to-Start
+                            succ_dates.append(succ_start - lag)
+                        elif taskpred_type == 'PR_FF':  # Finish-to-Finish
+                            succ_dates.append(self.late_finish[succ] - lag)
+                        elif taskpred_type == 'PR_SF':  # Start-to-Finish
+                            succ_dates.append(self.late_finish[succ] - lag)
+
+                    if succ_dates:
+                        self.late_finish[node] = min(succ_dates)
+                    else:
+                        self.late_finish[node] = project_end
+
+                # Apply constraints
+                _, self.late_finish[node] = self.apply_activity_constraints(node, is_forward_pass=False)
+
+                # Calculate late start
+                self.late_start[node] = self.working_day_calculator.add_working_days(
+                    self.late_finish[node],
+                    -self.graph.nodes[node]['duration'],
+                    self.graph.nodes[node]['calendar_id']
+                )
+
+            # Ensure late dates are not earlier than data date for future tasks
+            if pd.isnull(act_start) or act_start > self.data_date:
+                self.late_start[node] = max(self.late_start[node], self.data_date)
+                self.late_finish[node] = max(self.late_finish[node], self.data_date)
+
+        self.logger.info("Backward pass completed")
     def calculate_total_float(self):
         for node in self.graph.nodes:
-            self.total_float[node] = self.working_day_calculator.get_working_days_between(
-                self.early_start[node],
-                self.late_start[node],
-                self.graph.nodes[node]['calendar_id']
-            )
+            if pd.notnull(self.graph.nodes[node]['act_end_date']) and self.graph.nodes[node][
+                'act_end_date'] <= self.data_date:
+                self.total_float[node] = 0
+            else:
+                self.total_float[node] = self.working_day_calculator.get_working_days_between(
+                    max(self.early_start[node], self.data_date),
+                    self.late_start[node],
+                    self.graph.nodes[node]['calendar_id']
+                )
 
     def determine_critical_path(self, float_threshold=0):
-        self.critical_path = [node for node, tf in self.total_float.items() if tf <= float_threshold]
+        self.critical_path = [
+            node for node, tf in self.total_float.items()
+            if tf <= float_threshold and (
+                    pd.isnull(self.graph.nodes[node]['act_end_date']) or
+                    self.graph.nodes[node]['act_end_date'] > self.data_date
+            )
+        ]
 
     def calculate_critical_path(self):
         self.working_day_calculator = WorkingDayCalculator(self.workdays_df, self.exceptions_df)
