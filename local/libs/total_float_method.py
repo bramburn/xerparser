@@ -23,18 +23,14 @@ class TotalFloatCPMCalculator:
         self.total_float = {}
         self.critical_path = []
 
-    def apply_activity_constraints(self, node):
-
+    def apply_activity_constraints(self, node, is_forward_pass=True):
         cstr_type = self.graph.nodes[node]['cstr_type']
         cstr_date = self.graph.nodes[node]['cstr_date']
         cstr_type2 = self.graph.nodes[node]['cstr_type2']
         cstr_date2 = self.graph.nodes[node]['cstr_date2']
 
         early_start = self.early_start[node]
-        if node not in self.late_finish:
-            raise KeyError(f"Node {node} not found in late_finish dictionary.")
-        late_finish = self.late_finish[node]
-
+        late_finish = self.late_finish.get(node, None)  # Use .get() to avoid KeyError
 
         def apply_constraint(constraint_type, constraint_date, early_start, late_finish):
             if pd.isna(constraint_date):
@@ -45,11 +41,14 @@ class TotalFloatCPMCalculator:
             if constraint_type == 'CS_ALAP':
                 pass  # No action needed for As Late as Possible
             elif constraint_type in ['CS_MEO', 'CS_MANDFIN']:
-                late_finish = constraint_date
+                if late_finish is not None:
+                    late_finish = constraint_date
             elif constraint_type == 'CS_MEOA':
-                late_finish = max(late_finish, constraint_date)
+                if late_finish is not None:
+                    late_finish = max(late_finish, constraint_date)
             elif constraint_type == 'CS_MEOB':
-                late_finish = min(late_finish, constraint_date)
+                if late_finish is not None:
+                    late_finish = min(late_finish, constraint_date)
             elif constraint_type in ['CS_MANDSTART', 'CS_MSO']:
                 early_start = constraint_date
             elif constraint_type == 'CS_MSOA':
@@ -65,17 +64,17 @@ class TotalFloatCPMCalculator:
         # Apply secondary constraint
         early_start, late_finish = apply_constraint(cstr_type2, cstr_date2, early_start, late_finish)
 
-        # Check for conflicts
-        if early_start > late_finish:
+        # Check for conflicts only if we have both early_start and late_finish
+        if early_start is not None and late_finish is not None and early_start > late_finish:
             self.logger.warning(f"Conflict detected for task {node}: Early start is later than late finish")
 
         # Check if constraint violates predecessor relationships
-        for pred in self.graph.predecessors(node):
-            if early_start < self.early_finish[pred]:
-                self.logger.warning(f"Constraint for task {node} violates predecessor {pred} relationship")
+        if is_forward_pass:
+            for pred in self.graph.predecessors(node):
+                if early_start < self.early_finish[pred]:
+                    self.logger.warning(f"Constraint for task {node} violates predecessor {pred} relationship")
 
         return early_start, late_finish
-
     def set_workday_df(self, workday):
         self.workdays_df = workday.copy()
 
