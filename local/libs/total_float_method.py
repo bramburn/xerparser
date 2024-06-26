@@ -315,14 +315,35 @@ class TotalFloatCPMCalculator:
                 )
 
     def determine_critical_path(self, float_threshold=0):
-        self.critical_path = [
-            node for node, tf in self.total_float.items()
-            if tf <= float_threshold and (
-                    pd.isnull(self.graph.nodes[node]['act_end_date']) or
-                    self.graph.nodes[node]['act_end_date'] > self.data_date
-            )
-        ]
+        self.critical_path = []
+        completed_tasks = set(node for node in self.graph.nodes if
+                              pd.notnull(self.graph.nodes[node]['act_end_date']) and self.graph.nodes[node][
+                                  'act_end_date'] <= self.data_date)
 
+        # Identify tasks with total float less than or equal to the threshold
+        critical_tasks = [node for node, tf in self.total_float.items() if tf <= float_threshold]
+
+        # Include completed tasks with zero total float in the critical path
+        critical_tasks.extend(node for node in completed_tasks if self.total_float[node] == 0)
+
+        # Ensure continuity of the critical path
+        for task in critical_tasks:
+            if not self.critical_path:
+                self.critical_path.append(task)
+            else:
+                predecessors = list(self.graph.predecessors(task))
+                if any(pred in self.critical_path for pred in predecessors):
+                    self.critical_path.append(task)
+
+        # Verify that the critical path starts from the project start and ends at the project end
+        start_tasks = [node for node in self.graph.nodes if not list(self.graph.predecessors(node))]
+        end_tasks = [node for node in self.graph.nodes if not list(self.graph.successors(node))]
+
+        if not any(start_task in self.critical_path for start_task in start_tasks):
+            self.logger.warning("Critical path does not start from the project start task.")
+
+        if not any(end_task in self.critical_path for end_task in end_tasks):
+            self.logger.warning("Critical path does not end at the project end task.")
     def calculate_critical_path(self):
         self.working_day_calculator = WorkingDayCalculator(self.workdays_df, self.exceptions_df)
         self.build_graph()
@@ -342,9 +363,9 @@ class TotalFloatCPMCalculator:
 
     def get_project_duration(self):
         if not self.critical_path:
-            self.logger.error("Critical path is empty. Cannot determine project duration.")
-            return pd.Timedelta(0)  # or raise an exception, or handle it as appropriate
-        return self.late_finish[self.critical_path[-1]] - self.xer.project_df['plan_start_date'].iloc[0]
+            return None
+        plan_start_date = pd.to_datetime(self.xer.project_df['plan_start_date'].iloc[0])
+        return self.late_finish[self.critical_path[-1]] - plan_start_date
 
     def print_results(self):
         print("Task ID\tES\t\tEF\t\tLS\t\tLF\t\tTotal Float\tCritical")
