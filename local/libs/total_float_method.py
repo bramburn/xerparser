@@ -134,7 +134,7 @@ class TotalFloatCPMCalculator:
                 if ef_list:
                     self.early_finish[node] = max(ef_list)
             # Apply constraints after calculating early start and before calculating early finish
-            self.early_start[node], _ = self.apply_activity_constraints(node)
+            self.early_start[node], _ = self.apply_activity_constraints(node, is_forward_pass=True)
             # Calculate early finish based on early start and duration
             self.early_finish[node] = self.working_day_calculator.add_working_days(
                 self.early_start[node],
@@ -177,7 +177,7 @@ class TotalFloatCPMCalculator:
                         else:
                             self.late_finish[node] = project_end
                     # Apply constraints after calculating late finish and before calculating late start
-                    _, self.late_finish[node] = self.apply_activity_constraints(node)
+                    _, self.late_finish[node] = self.apply_activity_constraints(node, is_forward_pass=False)
                     self.late_start[node] = self.working_day_calculator.add_working_days(
                         self.late_finish[node],
                         -self.graph.nodes[node]['duration'],
