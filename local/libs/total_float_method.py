@@ -23,6 +23,59 @@ class TotalFloatCPMCalculator:
         self.total_float = {}
         self.critical_path = []
 
+    def apply_activity_constraints(self, node):
+
+        cstr_type = self.graph.nodes[node]['cstr_type']
+        cstr_date = self.graph.nodes[node]['cstr_date']
+        cstr_type2 = self.graph.nodes[node]['cstr_type2']
+        cstr_date2 = self.graph.nodes[node]['cstr_date2']
+
+        early_start = self.early_start[node]
+        if node not in self.late_finish:
+            raise KeyError(f"Node {node} not found in late_finish dictionary.")
+        late_finish = self.late_finish[node]
+
+
+        def apply_constraint(constraint_type, constraint_date, early_start, late_finish):
+            if pd.isna(constraint_date):
+                return early_start, late_finish
+
+            constraint_date = pd.to_datetime(constraint_date).date()
+
+            if constraint_type == 'CS_ALAP':
+                pass  # No action needed for As Late as Possible
+            elif constraint_type in ['CS_MEO', 'CS_MANDFIN']:
+                late_finish = constraint_date
+            elif constraint_type == 'CS_MEOA':
+                late_finish = max(late_finish, constraint_date)
+            elif constraint_type == 'CS_MEOB':
+                late_finish = min(late_finish, constraint_date)
+            elif constraint_type in ['CS_MANDSTART', 'CS_MSO']:
+                early_start = constraint_date
+            elif constraint_type == 'CS_MSOA':
+                early_start = max(early_start, constraint_date)
+            elif constraint_type == 'CS_MSOB':
+                early_start = min(early_start, constraint_date)
+
+            return early_start, late_finish
+
+        # Apply primary constraint
+        early_start, late_finish = apply_constraint(cstr_type, cstr_date, early_start, late_finish)
+
+        # Apply secondary constraint
+        early_start, late_finish = apply_constraint(cstr_type2, cstr_date2, early_start, late_finish)
+
+        # Check for conflicts
+        if early_start > late_finish:
+            self.logger.warning(f"Conflict detected for task {node}: Early start is later than late finish")
+
+        # Check if constraint violates predecessor relationships
+        for pred in self.graph.predecessors(node):
+            if early_start < self.early_finish[pred]:
+                self.logger.warning(f"Constraint for task {node} violates predecessor {pred} relationship")
+
+        return early_start, late_finish
+
     def set_workday_df(self, workday):
         self.workdays_df = workday.copy()
 
@@ -36,13 +89,16 @@ class TotalFloatCPMCalculator:
             except ValueError:
                 print(f"Warning: Invalid duration for task {task['task_id']}: {task['target_drtn_hr_cnt']}")
                 duration = pd.Timedelta(0, unit='h')
-            self.graph.add_node(task['task_id'], duration=duration.days, calendar_id=task['clndr_id'])
+            self.graph.add_node(task['task_id'], duration=duration.days, calendar_id=task['clndr_id'],
+                                cstr_type=task['cstr_type'], cstr_date=task['cstr_date'],
+                                cstr_type2=task['cstr_type2'], cstr_date2=task['cstr_date2'])
 
         for _, pred in self.xer.taskpred_df.iterrows():
             try:
                 lag = pd.to_timedelta(pd.to_numeric(pred['lag_hr_cnt']), unit='h')
             except ValueError:
-                print(f"Warning: Invalid lag for relationship {pred['pred_task_id']} -> {pred['task_id']}: {pred['lag_hr_cnt']}")
+                print(
+                    f"Warning: Invalid lag for relationship {pred['pred_task_id']} -> {pred['task_id']}: {pred['lag_hr_cnt']}")
                 lag = pd.Timedelta(0, unit='h')
             self.graph.add_edge(pred['pred_task_id'], pred['task_id'], lag=lag, taskpred_type=pred['pred_type'])
 
@@ -78,7 +134,8 @@ class TotalFloatCPMCalculator:
                     self.early_start[node] = max(es_list)
                 if ef_list:
                     self.early_finish[node] = max(ef_list)
-
+            # Apply constraints after calculating early start and before calculating early finish
+            self.early_start[node], _ = self.apply_activity_constraints(node)
             # Calculate early finish based on early start and duration
             self.early_finish[node] = self.working_day_calculator.add_working_days(
                 self.early_start[node],
@@ -100,7 +157,7 @@ class TotalFloatCPMCalculator:
             if not list(self.graph.successors(node)):
                 self.late_finish[node] = project_end
 
-        # Now proceed with the rest of the backward
+                # Now proceed with the rest of the backward
                 # Now proceed with the rest of the backward pass
                 for node in reversed(list(nx.topological_sort(self.graph))):
                     if self.late_finish[node] is None:
@@ -120,7 +177,8 @@ class TotalFloatCPMCalculator:
                             self.late_finish[node] = min(lf_list)
                         else:
                             self.late_finish[node] = project_end
-
+                    # Apply constraints after calculating late finish and before calculating late start
+                    _, self.late_finish[node] = self.apply_activity_constraints(node)
                     self.late_start[node] = self.working_day_calculator.add_working_days(
                         self.late_finish[node],
                         -self.graph.nodes[node]['duration'],
