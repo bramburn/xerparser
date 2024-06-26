@@ -115,7 +115,7 @@ class Xer:
             xer_contents += "ERMHDR\t" + "\t".join([str(x) for x in ermhdr_row]) + "\n"
         else:
             # If ERMHDR is missing or empty, create a minimal header based on the provided format
-            xer_contents += "ERMHDR\t16.2\t2023-04-14\tProject\tUSER\tUSERNAME\tdbxDatabaseNoName\tProject Management\tUSD\n"
+            xer_contents += "ERMHDR\t19.0\t2023-04-14\tProject\tUSER\tUSERNAME\tdbxDatabaseNoName\tProject Management\tUSD\n"
 
         for table_name, df in self.tables.items():
             if table_name != 'ERMHDR' and not df.empty:
