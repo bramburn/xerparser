@@ -360,6 +360,24 @@ class TotalFloatCPMCalculator:
         self.xer.task_df['late_finish'] = self.xer.task_df['task_id'].map(self.late_finish)
         self.xer.task_df['total_float'] = self.xer.task_df['task_id'].map(self.total_float)
         self.xer.task_df['is_critical'] = self.xer.task_df['task_id'].isin(self.critical_path)
+        self.xer.task_df['forecast_start'] = self.xer.task_df.apply(self.calculate_forecast_start, axis=1)
+        self.xer.task_df['forecast_finish'] = self.xer.task_df.apply(self.calculate_forecast_finish, axis=1)
+
+    def calculate_forecast_start(self, task):
+        if pd.notnull(task['act_end_date']) and task['act_end_date'] <= self.data_date:
+            return task['act_start_date']
+        else:
+            return self.early_start[task['task_id']]
+
+    def calculate_forecast_finish(self, task):
+        if pd.notnull(task['act_end_date']) and task['act_end_date'] <= self.data_date:
+            return task['act_end_date']
+        else:
+            forecast_start = self.calculate_forecast_start(task)
+            duration = self.graph.nodes[task['task_id']]['duration']
+            calendar_id = self.graph.nodes[task['task_id']]['calendar_id']
+            forecast_finish = self.working_day_calculator.add_working_days(forecast_start, duration, calendar_id)
+            return forecast_finish
 
     def get_project_duration(self):
         if not self.critical_path:
