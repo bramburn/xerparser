@@ -590,7 +590,7 @@ class TotalFloatCPMCalculator:
 
         # Create a table with the critical path tasks
         headers = ['Task Code', 'Task Name', 'Target Start Date', 'Target End Date']
-        mdFile.new_table(columns=len(headers), rows=len(self.critical_path) + 1, text=headers, text_align='left')
+        table_data = headers.copy()
 
         for task_id in self.critical_path:
             task = self.xer.task_df.loc[self.xer.task_df['task_id'] == task_id].iloc[0]
@@ -598,10 +598,11 @@ class TotalFloatCPMCalculator:
             task_name = task['task_name']
             target_start_date = task['target_start_date'].strftime('%Y-%m-%d')
             target_end_date = task['target_end_date'].strftime('%Y-%m-%d')
-            mdFile.new_table_row([task_code, task_name, target_start_date, target_end_date])
+            table_data.extend([task_code, task_name, target_start_date, target_end_date])
+
+        mdFile.new_table(columns=len(headers), rows=len(self.critical_path) + 1, text=table_data, text_align='center')
 
         mdFile.create_md_file()
-
     def get_subtasks(self, wbs_node):
         """
         Get the subtasks of a WBS summary task.
