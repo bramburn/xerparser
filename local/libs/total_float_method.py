@@ -2,6 +2,8 @@
 import logging
 import networkx as nx
 import pandas as pd
+from mdutils import MdUtils
+
 from local.libs.calendar_parser import CalendarParser
 from local.libs.working_day_calculator import WorkingDayCalculator
 from pandas import Timestamp
@@ -127,25 +129,39 @@ class TotalFloatCPMCalculator:
 
     def build_graph(self):
         for _, task in self.xer.task_df.iterrows():
-            try:
-                duration = pd.to_timedelta(pd.to_numeric(task['target_drtn_hr_cnt']), unit='h')
-            except ValueError:
-                print(f"Warning: Invalid duration for task {task['task_id']}: {task['target_drtn_hr_cnt']}")
-                duration = pd.Timedelta(0, unit='h')
+            task_type = task['task_type']
 
-            # Convert act_start_date and act_end_date to datetime
+            # Handle different task types
+            if task_type in ['TT_Mile', 'TT_FinMile']:
+                duration = 0  # Milestones have zero duration
+            elif task_type == 'TT_LOE':
+                # Level of Effort tasks are handled separately
+                duration = pd.to_timedelta(pd.to_numeric(task['target_drtn_hr_cnt']), unit='h').days
+            elif task_type in ['TT_Task', 'TT_Rsrc']:
+                # Regular tasks and resource-dependent tasks
+                duration = pd.to_timedelta(pd.to_numeric(task['target_drtn_hr_cnt']), unit='h').days
+            elif task_type == 'TT_WBS':
+                # WBS summary tasks
+                duration = 0  # Duration will be calculated based on subtasks
+            else:
+                print(f"Warning: Unknown task type {task_type} for task {task['task_id']}")
+                duration = 0
+
             act_start_date = pd.to_datetime(task['act_start_date'], errors='coerce')
             act_end_date = pd.to_datetime(task['act_end_date'], errors='coerce')
 
             self.graph.add_node(task['task_id'],
-                                duration=duration.days,
+                                duration=duration,
                                 calendar_id=task['clndr_id'],
                                 cstr_type=task['cstr_type'],
                                 cstr_date=task['cstr_date'],
                                 cstr_type2=task['cstr_type2'],
                                 cstr_date2=task['cstr_date2'],
                                 act_start_date=act_start_date,
-                                act_end_date=act_end_date)
+                                act_end_date=act_end_date,
+                                task_type=task_type,
+                                is_loe=(task_type == 'TT_LOE'),
+                                wbs_id=task['wbs_id'])  # Added WBS ID
 
         for _, pred in self.xer.taskpred_df.iterrows():
             try:
@@ -156,6 +172,10 @@ class TotalFloatCPMCalculator:
                 lag = pd.Timedelta(0, unit='h')
             self.graph.add_edge(pred['pred_task_id'], pred['task_id'], lag=lag, taskpred_type=pred['pred_type'])
 
+        # Handle WBS summary tasks
+        for node in self.graph.nodes:
+            if self.graph.nodes[node]['task_type'] == 'TT_WBS':
+                self.graph.nodes[node]['subtasks'] = self.get_subtasks(node)
     def forward_pass(self):
         project_start = pd.to_datetime(self.xer.project_df['plan_start_date'].iloc[0])
         self.logger.info("Starting forward pass")
@@ -360,8 +380,8 @@ class TotalFloatCPMCalculator:
         self.xer.task_df['late_finish'] = self.xer.task_df['task_id'].map(self.late_finish)
         self.xer.task_df['total_float'] = self.xer.task_df['task_id'].map(self.total_float)
         self.xer.task_df['is_critical'] = self.xer.task_df['task_id'].isin(self.critical_path)
-        self.xer.task_df['forecast_start'] = self.xer.task_df.apply(self.calculate_forecast_start, axis=1)
-        self.xer.task_df['forecast_finish'] = self.xer.task_df.apply(self.calculate_forecast_finish, axis=1)
+        self.xer.task_df['target_start_date'] = self.xer.task_df.apply(self.calculate_forecast_start, axis=1)
+        self.xer.task_df['target_end_date'] = self.xer.task_df.apply(self.calculate_forecast_finish, axis=1)
 
     def calculate_forecast_start(self, task):
         if pd.notnull(task['act_end_date']) and task['act_end_date'] <= self.data_date:
@@ -397,3 +417,62 @@ class TotalFloatCPMCalculator:
         else:
             print(f"\nCritical Path: {' -> '.join(map(str, self.critical_path))}")
             print(f"Project Duration: {project_duration.days} days")
+
+    def generate_critical_path_report(self, file_path):
+        mdFile = MdUtils(file_name=file_path, title='Critical Path Report')
+
+        # Add project information
+        mdFile.new_header(level=1, title='Project Information')
+        for _, project in self.xer.project_df.iterrows():
+            mdFile.new_paragraph(f"Project ID: {project['proj_id']}")
+            mdFile.new_paragraph(f"Project Name: {project['proj_short_name']}")
+
+        # Add critical path information
+        mdFile.new_header(level=1, title='Critical Path')
+        mdFile.new_line()
+
+        # Create a table with the critical path tasks
+        headers = ['Task Code', 'Task Name', 'Target Start Date', 'Target End Date']
+        mdFile.new_table(columns=len(headers), rows=len(self.critical_path) + 1, text=headers, text_align='left')
+
+        for task_id in self.critical_path:
+            task = self.xer.task_df.loc[self.xer.task_df['task_id'] == task_id].iloc[0]
+            task_code = task['task_code']
+            task_name = task['task_name']
+            target_start_date = task['target_start_date'].strftime('%Y-%m-%d')
+            target_end_date = task['target_end_date'].strftime('%Y-%m-%d')
+            mdFile.new_table_row([task_code, task_name, target_start_date, target_end_date])
+
+        mdFile.create_md_file()
+
+    def get_subtasks(self, wbs_node):
+        """
+        Get the subtasks of a WBS summary task.
+
+        Args:
+        wbs_node (str): The task_id of the WBS summary task.
+
+        Returns:
+        list: A list of task_ids that are subtasks of the given WBS summary task.
+        """
+        subtasks = []
+
+        # Get the WBS information for the summary task
+        wbs_info = self.xer.projwbs_df[self.xer.projwbs_df['wbs_id'] == self.graph.nodes[wbs_node]['wbs_id']]
+
+        if wbs_info.empty:
+            return subtasks
+
+        wbs_path = wbs_info['wbs_short_name'].iloc[0]
+
+        # Find all tasks that belong to this WBS or its sub-WBS
+        for task_id, task_data in self.graph.nodes(data=True):
+            task_wbs_id = task_data.get('wbs_id')
+            if task_wbs_id:
+                task_wbs_info = self.xer.projwbs_df[self.xer.projwbs_df['wbs_id'] == task_wbs_id]
+                if not task_wbs_info.empty:
+                    task_wbs_path = task_wbs_info['wbs_short_name'].iloc[0]
+                    if task_wbs_path.startswith(wbs_path) and task_id != wbs_node:
+                        subtasks.append(task_id)
+
+        return subtasks
