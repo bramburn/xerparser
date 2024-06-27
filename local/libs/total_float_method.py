@@ -575,34 +575,78 @@ class TotalFloatCPMCalculator:
             print(f"\nCritical Path: {' -> '.join(map(str, self.critical_path))}")
             print(f"Project Duration: {project_duration.days} days")
 
-    def generate_critical_path_report(self, file_path):
-        mdFile = MdUtils(file_name=file_path, title='Critical Path Report')
+    def generate_critical_path_report(self):
+        mdFile = MdUtils(file_name='Critical_Path_Report', title='Critical Path Report')
 
-        # Add project information
         mdFile.new_header(level=1, title='Project Information')
-        for _, project in self.xer.project_df.iterrows():
-            mdFile.new_paragraph(f"Project ID: {project['proj_id']}")
-            mdFile.new_paragraph(f"Project Name: {project['proj_short_name']}")
+        project_info = self.xer.project_df.iloc[0]
+        mdFile.new_paragraph(f"Project Name: {project_info['proj_short_name']}")
+        mdFile.new_paragraph(f"Project ID: {project_info['proj_id']}")
+        mdFile.new_paragraph(f"Data Date: {self.data_date.strftime('%Y-%m-%d')}")
 
-        # Add critical path information
+        # Milestone Table
+        mdFile.new_header(level=1, title='Project Milestones')
+        milestone_table = ["Task ID", "Task Name", "Date", "Type"]
+
+        milestone_tasks = self.xer.task_df[self.xer.task_df['task_type'].isin(['TT_Mile', 'TT_FinMile'])]
+
+        for _, task in milestone_tasks.iterrows():
+            task_id = task['task_id']
+            task_name = task['task_name']
+
+            if pd.notnull(task['act_start_date']):
+                date = task['act_start_date'].strftime('%Y-%m-%d')
+                date_type = "Actual Start"
+            elif pd.notnull(task['act_end_date']):
+                date = task['act_end_date'].strftime('%Y-%m-%d')
+                date_type = "Actual End"
+            elif pd.notnull(task['target_start_date']):
+                date = task['target_start_date'].strftime('%Y-%m-%d')
+                date_type = "Target Start"
+            elif pd.notnull(task['target_end_date']):
+                date = task['target_end_date'].strftime('%Y-%m-%d')
+                date_type = "Target End"
+            else:
+                date = "N/A"
+                date_type = "N/A"
+
+            milestone_table.extend([task_id, task_name, date, date_type])
+
+        mdFile.new_table(columns=4, rows=len(milestone_tasks) + 1, text=milestone_table, text_align='left')
+
+        # Critical Path Table
         mdFile.new_header(level=1, title='Critical Path')
-        mdFile.new_line()
 
-        # Create a table with the critical path tasks
-        headers = ['Task Code', 'Task Name', 'Target Start Date', 'Target End Date']
-        table_data = headers.copy()
+        cp_table = ["Task ID", "Task Name", "Start Date", "End Date", "Total Float"]
 
         for task_id in self.critical_path:
-            task = self.xer.task_df.loc[self.xer.task_df['task_id'] == task_id].iloc[0]
-            task_code = task['task_code']
+            task = self.xer.task_df[self.xer.task_df['task_id'] == task_id].iloc[0]
             task_name = task['task_name']
-            target_start_date = task['target_start_date'].strftime('%Y-%m-%d')
-            target_end_date = task['target_end_date'].strftime('%Y-%m-%d')
-            table_data.extend([task_code, task_name, target_start_date, target_end_date])
 
-        mdFile.new_table(columns=len(headers), rows=len(self.critical_path) + 1, text=table_data, text_align='center')
+            if task['task_type'] in ['TT_Mile', 'TT_FinMile']:
+                if pd.notnull(task['act_start_date']):
+                    start_date = end_date = task['act_start_date'].strftime('%Y-%m-%d')
+                elif pd.notnull(task['act_end_date']):
+                    start_date = end_date = task['act_end_date'].strftime('%Y-%m-%d')
+                elif pd.notnull(task['target_start_date']):
+                    start_date = end_date = task['target_start_date'].strftime('%Y-%m-%d')
+                elif pd.notnull(task['target_end_date']):
+                    start_date = end_date = task['target_end_date'].strftime('%Y-%m-%d')
+                else:
+                    start_date = end_date = "N/A"
+            else:
+                start_date = self.early_start[task_id].strftime('%Y-%m-%d')
+                end_date = self.early_finish[task_id].strftime('%Y-%m-%d')
+
+            total_float = f"{self.total_float[task_id]:.2f}"
+
+            cp_table.extend([task_id, task_name, start_date, end_date, total_float])
+
+        mdFile.new_table(columns=5, rows=len(self.critical_path) + 1, text=cp_table, text_align='left')
 
         mdFile.create_md_file()
+        self.logger.info("Critical Path Report generated successfully.")
+
     def get_subtasks(self, wbs_node):
         """
         Get the subtasks of a WBS summary task.
