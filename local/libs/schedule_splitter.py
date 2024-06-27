@@ -1,33 +1,25 @@
+import logging
+from typing import Tuple
+
 import pandas as pd
 from datetime import datetime
 
 from mdutils import MdUtils
 from mdutils.tools.Table import Table
 
+from local.libs.xer_file_creation import XerFileGenerator, ProgressCalculator
 from xerparser import Xer
 
 
 class ScheduleSplitter:
-    def __init__(self, xer, start_date, end_date, split_date):
+    def __init__(self, xer):
         self.xer = xer
-        self.start_date = pd.to_datetime(start_date)
-        self.end_date = pd.to_datetime(end_date)
-        self.split_date = pd.to_datetime(split_date)
+        self.modified_xer = None
         self.filtered_tasks = None
         self.date_format = "%Y-%m-%d %H:%M"
-
-    def get_processed_df(self):
-        """
-        Returns the processed DataFrame before filtering.
-
-        Returns:
-            pandas.DataFrame: The processed DataFrame containing all tasks.
-        """
-        if self.xer.task_df is None:
-            print("No data has been processed. Please run process_data() first.")
-            return None
-
-        return self.xer.task_df
+        self.start_date = None
+        self.end_date = None
+        self.split_date = None
 
     def get_filtered_df(self):
         """
@@ -42,38 +34,47 @@ class ScheduleSplitter:
 
         return self.filtered_tasks
 
-    def process_data(self):
-        if self.xer.task_df is not None:
-            self.xer.task_df['update_date'] = datetime.now().strftime(self.date_format)
+    def process_data(self, start_date: str, end_date: str, split_date: str) -> Tuple[Xer, pd.DataFrame]:
+        """
+        Process the XER data, create a modified copy, and filter tasks.
 
-            self.xer.task_df['progress'] = self.xer.task_df.apply(lambda row:
-                                                                  1.0 if row['act_end_date'] <= self.split_date else
-                                                                  0.0 if row['act_start_date'] > self.split_date else
-                                                                  (self.split_date - row['act_start_date']) / (
-                                                                          row['act_end_date'] - row[
-                                                                      'act_start_date'])
-                                                                  if pd.notnull(row['act_start_date']) and pd.notnull(
-                                                                      row['act_end_date']) else 0.0,
-                                                                  axis=1
-                                                                  )
+        Args:
+            start_date (str): The start date for filtering tasks.
+            end_date (str): The end date for filtering tasks.
+            split_date (str): The date to split the schedule and calculate progress.
 
-            zero_progress_mask = self.xer.task_df['progress'] == 0
-            self.xer.task_df.loc[zero_progress_mask, 'act_start_date'] = pd.NaT
-            self.xer.task_df.loc[zero_progress_mask, 'act_end_date'] = pd.NaT
+        Returns:
+            Tuple[Xer, pd.DataFrame]: A tuple containing the modified Xer object and the filtered tasks DataFrame.
+        """
+        self.start_date = pd.to_datetime(start_date)
+        self.end_date = pd.to_datetime(end_date)
+        self.split_date = pd.to_datetime(split_date)
 
-            self.xer.update_last_recalc_date(self.split_date)
+        xer_generator = XerFileGenerator(self.xer)
+        self.modified_xer = xer_generator.create_modified_copy(self.split_date)
 
-            # Filter the tasks
-            self.filtered_tasks = self.xer.task_df[
-                (self.xer.task_df['act_start_date'] >= self.start_date) &
-                ((self.xer.task_df['act_end_date'] <= self.end_date) | self.xer.task_df['act_end_date'].isna())]
+        # Filter the tasks
+        if self.modified_xer.task_df is not None:
+            self.filtered_tasks = self.filter_tasks(self.modified_xer.task_df, self.start_date, self.end_date)
+        else:
+            self.filtered_tasks = pd.DataFrame()
+
+        return self.modified_xer, self.filtered_tasks
+
+    def filter_tasks(self, tasks_df, start_date, end_date):
+        return tasks_df[
+            (tasks_df['act_start_date'] >= start_date) &
+            ((tasks_df['act_end_date'] <= end_date) | tasks_df['act_end_date'].isna())
+            ]
+
     def generate_xer(self, output_file):
+        if self.modified_xer is None:
+            print("Please run process_data() before generating the XER file.")
+            return
+
+        xer_generator = XerFileGenerator(self.modified_xer)
         date_prefix = self.split_date.strftime("%Y-%m-%d")
-        new_filename = f"{date_prefix}_{output_file}"
-        xer_contents = self.xer.generate_xer_contents()
-        with open(new_filename, 'w', encoding=Xer.CODEC) as f:
-            f.write(xer_contents)
-        print(f"Updated XER file exported to: {new_filename}")
+        xer_generator.generate_xer_file(output_file, date_prefix)
 
     def generate_markdown_report(self, output_file):
         if self.filtered_tasks is None:
@@ -83,14 +84,30 @@ class ScheduleSplitter:
         project_info = self.xer.project_df
         mdFile = MdUtils(file_name=output_file, title='Project Progress Report')
 
-        # Project List
-        mdFile.new_header(level=2, title='Projects')
-        project_list = []
-        for _, row in project_info.iterrows():
-            project_name = row['proj_short_name']
-            project_id = row['proj_id']
-            project_list.append(f"**Project Name:** {project_name}\n**Project ID:** {project_id}")
-        mdFile.new_list(project_list)
+        mdFile.new_header(level=1, title="Project Report")
+
+        # Initialize table of contents immediately after creating the MdUtils object
+        mdFile.new_table_of_contents(table_title='Contents', depth=2)
+
+        # Check if project_info is not empty
+        if not project_info.empty:
+            mdFile.new_header(level=2, title='Projects')
+            # Initialize table data
+            table_data = [['Project Name', 'Project ID']]
+
+            # Check if proj_short_name and proj_id columns exist in project_info
+            if 'proj_short_name' in project_info.columns and 'proj_id' in project_info.columns:
+                # Populate the table data with project information
+                for _, row in project_info.iterrows():
+                    # Check if proj_short_name and proj_id values are not NaN
+                    project_name = row['proj_short_name'] if pd.notna(row['proj_short_name']) else 'N/A'
+                    project_id = row['proj_id'] if pd.notna(row['proj_id']) else 'N/A'
+                    table_data.append([project_name, project_id])
+
+            # Add the table to the markdown file
+            mdFile.new_table(columns=2, rows=len(table_data), text=table_data, text_align='left')
+        else:
+            logging.warning("No Project information found")
 
         # Current Project Details
         project_name = project_info.iloc[0]['proj_short_name']
@@ -109,13 +126,14 @@ class ScheduleSplitter:
             if row['task_type'] in ['TT_Mile', 'TT_FinMile']:
                 task_code = row['task_code']
                 task_name = row['task_name']
-                planned_start = row['target_start_date'].strftime('%Y-%m-%d') if pd.notnull(
-                    row['target_start_date']) else 'N/A'
-                planned_end = row['target_end_date'].strftime('%Y-%m-%d') if pd.notnull(
-                    row['target_end_date']) else 'N/A'
-                actual_start = row['act_start_date'].strftime('%Y-%m-%d') if pd.notnull(
-                    row['act_start_date']) else 'N/A'
-                actual_end = row['act_end_date'].strftime('%Y-%m-%d') if pd.notnull(row['act_end_date']) else 'N/A'
+                planned_start = pd.to_datetime(row['target_start_date'], format=self.date_format).strftime(
+                    '%Y-%m-%d') if pd.notna(row['target_start_date']) else 'N/A'
+                planned_end = pd.to_datetime(row['target_end_date'], format=self.date_format).strftime(
+                    '%Y-%m-%d') if pd.notna(row['target_end_date']) else 'N/A'
+                actual_start = pd.to_datetime(row['act_start_date'], format=self.date_format).strftime(
+                    '%Y-%m-%d') if pd.notna(row['act_start_date']) else 'N/A'
+                actual_end = pd.to_datetime(row['act_end_date'], format=self.date_format).strftime(
+                    '%Y-%m-%d') if pd.notna(row['act_end_date']) else 'N/A'
                 milestone_data.extend([task_code, task_name, planned_start, planned_end, actual_start, actual_end])
 
         mdFile.new_table(columns=6, rows=len(milestone_data) // 6, text=milestone_data, text_align='center')
