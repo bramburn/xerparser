@@ -448,10 +448,12 @@ class TotalFloatCPMCalculator:
     def determine_critical_path(self, float_threshold=0):
         self.critical_path = []
         critical_tasks = []
+        completed_critical_tasks = []
 
         for node, data in self.graph.nodes(data=True):
             task_type = data['task_type']
             total_float = self.total_float.get(node)
+            is_completed = pd.notnull(data['act_end_date']) and data['act_end_date'] <= self.data_date
 
             if task_type == 'TT_LOE':
                 continue  # Exclude Level of Effort tasks from critical path
@@ -462,20 +464,30 @@ class TotalFloatCPMCalculator:
                 continue
 
             if total_float <= float_threshold:
-                critical_tasks.append(node)
+                if is_completed:
+                    completed_critical_tasks.append(node)
+                else:
+                    critical_tasks.append(node)
 
-        # Sort critical tasks topologically
+        # Sort non-completed critical tasks topologically
         try:
             critical_subgraph = self.graph.subgraph(critical_tasks)
-            self.critical_path = list(nx.topological_sort(critical_subgraph))
+            sorted_critical_tasks = list(nx.topological_sort(critical_subgraph))
         except nx.NetworkXUnfeasible:
             self.logger.error("Critical path contains a cycle. Unable to determine a valid critical path.")
             return
 
+        # Combine completed and non-completed critical tasks
+        self.critical_path = completed_critical_tasks + sorted_critical_tasks
+
+        # Log completed critical tasks
+        if completed_critical_tasks:
+            self.logger.info(f"Completed critical tasks: {', '.join(map(str, completed_critical_tasks))}")
+
         # Verify critical path continuity
-        for i in range(len(self.critical_path) - 1):
-            current_task = self.critical_path[i]
-            next_task = self.critical_path[i + 1]
+        for i in range(len(sorted_critical_tasks) - 1):
+            current_task = sorted_critical_tasks[i]
+            next_task = sorted_critical_tasks[i + 1]
             if next_task not in self.graph.successors(current_task):
                 self.logger.warning(f"Discontinuity in critical path between tasks {current_task} and {next_task}")
 
@@ -491,6 +503,24 @@ class TotalFloatCPMCalculator:
 
         # Log the identified critical path
         self.logger.info(f"Critical path identified: {' -> '.join(map(str, self.critical_path))}")
+
+        # Calculate and log the critical path length
+        if self.critical_path:
+            critical_path_length = sum(self.graph.nodes[node]['duration'] for node in self.critical_path
+                                       if not pd.notnull(self.graph.nodes[node]['act_end_date']))
+            self.logger.info(f"Critical path length: {critical_path_length} days")
+
+        # Identify near-critical paths
+        near_critical_threshold = float_threshold * 1.1  # 10% more than the critical threshold
+        near_critical_tasks = [node for node, data in self.graph.nodes(data=True)
+                               if self.total_float.get(node, float('inf')) <= near_critical_threshold
+                               and node not in self.critical_path]
+
+        if near_critical_tasks:
+            self.logger.info(f"Near-critical tasks identified: {', '.join(map(str, near_critical_tasks))}")
+
+        return self.critical_path
+
     def calculate_critical_path(self):
         self.working_day_calculator = WorkingDayCalculator(self.workdays_df, self.exceptions_df)
         self.build_graph()
@@ -535,8 +565,8 @@ class TotalFloatCPMCalculator:
     def print_results(self):
         print("Task ID\tES\t\tEF\t\tLS\t\tLF\t\tTotal Float\tCritical")
         for _, task in self.xer.task_df.iterrows():
-            print(f"{task['task_id']}\t{task['early_start']}\t{task['early_finish']}\t"
-                  f"{task['late_start']}\t{task['late_finish']}\t{task['total_float']}\t{task['is_critical']}")
+            print(f"{task['task_id']}\t{task['task_code']}\t{task['task_name']}\t"
+                  f"{task['target_start_date']}\t{task['target_end_date']}\t{task['total_float']}\t{task['is_critical']}")
         project_duration = self.get_project_duration()
         if project_duration == pd.Timedelta(0):
             print("\nCritical Path: Not found")
