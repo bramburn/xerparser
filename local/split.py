@@ -1,129 +1,43 @@
+import os
 from datetime import datetime
-import numpy as np
 import pandas as pd
+from schedule_splitter import ScheduleSplitter
 from xerparser import Xer
 
 date_format = "%Y-%m-%d %H:%M"
-asbuilt_file=r"asbuilt.xer"
+asbuilt_file = r"asbuilt.xer"
 
 # define the start and end dates for the filter
-start_date = pd.to_datetime('2023-12-01 00:00:00')  # example start date
-end_date = pd.to_datetime('2023-12-31 00:00:00')  # example end date
+start_date = '2023-12-01 00:00:00'  # example start date
+end_date = '2023-12-31 00:00:00'  # example end date
 split_date = end_date
-
-
-def generate_markdown_report(xer, filtered_tasks, split_date):
-    """Generate a markdown report with the requested information."""
-
-    # Get project information
-    project_info = xer.project_df.iloc[0]
-    project_name = project_info['proj_short_name']
-    project_id = project_info['proj_id']
-
-    # Create the markdown content
-    markdown_content = f"""# Project Progress Report
-
-## Project Details
-- **Project Name:** {project_name}
-- **Project ID:** {project_id}
-- **Date Assessed:** {split_date.strftime('%Y-%m-%d')}
-
-## Activities in the Period
-
-| Task ID | Task Name | Planned Duration (days) | Actual Duration | Progress |
-|---------|-----------|-------------------------|-----------------|----------|
-"""
-
-    duration_changes = []
-
-    for _, row in filtered_tasks.iterrows():
-        task_code = row['task_code']
-        task_name = row['task_name']
-        planned_duration = int(row['target_drtn_hr_cnt']) / 8
-
-        if pd.notnull(row['act_start_date']) and pd.notnull(row['act_end_date']):
-            actual_duration = (row['act_end_date'] - row['act_start_date']).days
-            duration_diff = actual_duration - planned_duration
-            if duration_diff != 0:
-                duration_changes.append((task_code, task_name, planned_duration, actual_duration, duration_diff))
-        else:
-            actual_duration = "N/A"
-
-        progress = f"{row['progress'] * 100:.2f}%"
-
-        markdown_content += f"| {task_code} | {task_name} | {planned_duration:.1f} | {actual_duration} | {progress} |\n"
-
-    markdown_content += "\n## Duration Changes in the Period\n\n"
-    markdown_content += "| Task ID | Task Name | Planned Duration (days) | Actual Duration (days) | Difference (days) |\n"
-    markdown_content += "|---------|-----------|-------------------------|------------------------|--------------------|\n"
-
-    for task_code, task_name, planned, actual, diff in duration_changes:
-        markdown_content += f"| {task_code} | {task_name} | {planned:.1f} | {actual} | {diff:+.1f} |\n"
-
-    # Save the markdown report
-    report_filename = f"{split_date.strftime('%Y-%m-%d')}_progress_report.md"
-    with open(report_filename, 'w', encoding='utf-8') as f:
-        f.write(markdown_content)
-
-    print(f"Markdown report saved as: {report_filename}")
-def calculate_duration(start_date, end_date, day_hr_cnt):
-    actual_start = datetime.strptime(start_date, date_format)
-    actual_finish = datetime.strptime(end_date, date_format)
-    actual_duration = actual_finish - actual_start
-    return (actual_duration.days * 24 + actual_duration.seconds / 3600) * day_hr_cnt
-
-def export_xer(xer, output_file, split_date):
-    """Export the updated data as a new XER file with the split date in the filename."""
-    date_prefix = split_date.strftime("%Y-%m-%d")
-    new_filename = f"{date_prefix}_{output_file}"
-    xer_contents = xer.generate_xer_contents()
-    with open(new_filename, 'w', encoding=Xer.CODEC) as f:
-        f.write(xer_contents)
-    print(f"Updated XER file exported to: {new_filename}")
 
 def main():
     file = asbuilt_file
     with open(file, encoding=Xer.CODEC, errors="ignore") as f:
         file_contents = f.read()
     xer = Xer(file_contents)
-    calendars = {}
-    if xer.calendar_df is not None and xer.taskpred_df is not None:
-        for clndr_id, day_hr_cnt in zip(xer.calendar_df['clndr_id'], xer.calendar_df['day_hr_cnt']):
-            calendars[clndr_id] = day_hr_cnt
 
-    if xer.task_df is not None:
-        # update the table value of update_date to today's date
-        xer.task_df['update_date'] = datetime.now().strftime(date_format)
+    # Create a ScheduleSplitter instance
+    splitter = ScheduleSplitter(xer, start_date, end_date, split_date)
 
-        # Update progress calculation based on split_date
-        xer.task_df['progress'] = xer.task_df.apply(lambda row:
-            1.0 if row['act_end_date'] <= split_date else
-            0.0 if row['act_start_date'] > split_date else
-            (split_date - row['act_start_date']) / (row['act_end_date'] - row['act_start_date'])
-            if pd.notnull(row['act_start_date']) and pd.notnull(row['act_end_date']) else 0.0,
-            axis=1
-        )
+    # Process the data
+    splitter.process_data()
 
-        # For tasks with zero progress, set actual start and end dates to NaT (Not a Time)
-        zero_progress_mask = xer.task_df['progress'] == 0
-        xer.task_df.loc[zero_progress_mask, 'act_start_date'] = pd.NaT
-        xer.task_df.loc[zero_progress_mask, 'act_end_date'] = pd.NaT
+    # Get the filtered DataFrame
+    filtered_tasks = splitter.get_filtered_df()
 
-        # Update the project's last_recalc_date
-        xer.update_last_recalc_date(split_date)
+    # Generate the updated XER file
+    date_prefix = splitter.split_date.strftime("%Y-%m-%d")
+    asbuilt_filename = os.path.splitext(asbuilt_file)[0]  # Get filename without extension
+    output_xer_filename = f"{date_prefix}_{asbuilt_filename}_updated.xer"
+    splitter.generate_xer(output_xer_filename)
 
-        # Export the updated data as a new XER file
-        export_xer(xer, "updated_output.xer", split_date)
+    # Generate the markdown report
+    splitter.generate_markdown_report(f"{date_prefix}_{asbuilt_filename}_report.md")
 
-
-
-        # filter the dataframe based on the start and end date
-        filtered_tasks = xer.task_df[
-            (xer.task_df['act_start_date'] >= start_date) &
-            ((xer.task_df['act_end_date'] <= end_date) | xer.task_df['act_end_date'].isna())]
-        # After processing the data and creating filtered_tasks, add:
-        generate_markdown_report(xer, filtered_tasks, split_date)
-        # print the required data for the filtered tasks
+    # Print details for filtered tasks (optional)
+    if filtered_tasks is not None:
         for i, row in filtered_tasks.iterrows():
             task_code = row['task_code']
             task_name = row['task_name']
@@ -133,8 +47,8 @@ def main():
             act_end_date = row['act_end_date']
             progress = row['progress']
 
-            # calculate the actual completion duration
-            actual_completion_duration = act_end_date - act_start_date if pd.notnull(act_start_date) and pd.notnull(act_end_date) else pd.NaT
+            actual_completion_duration = act_end_date - act_start_date if pd.notnull(
+                act_start_date) and pd.notnull(act_end_date) else pd.NaT
 
             print(
                 f"task id: {task_code}, {task_name}, proj: {proj_id}, planned duration {int(target_drtn_hr_cnt) / 8} days, actual completion: {actual_completion_duration} [start : {act_start_date} end: {act_end_date}] - {progress * 100:.2f}%")

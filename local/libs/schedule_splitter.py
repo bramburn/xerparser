@@ -80,17 +80,48 @@ class ScheduleSplitter:
             print("Please run process_data() before generating the report.")
             return
 
-        project_info = self.xer.project_df.iloc[0]
-        project_name = project_info['proj_short_name']
-        project_id = project_info['proj_id']
-
+        project_info = self.xer.project_df
         mdFile = MdUtils(file_name=output_file, title='Project Progress Report')
 
-        # Project Details
-        mdFile.new_header(level=2, title='Project Details')
+        # Project List
+        mdFile.new_header(level=2, title='Projects')
+        project_list = []
+        for _, row in project_info.iterrows():
+            project_name = row['proj_short_name']
+            project_id = row['proj_id']
+            project_list.append(f"**Project Name:** {project_name}\n**Project ID:** {project_id}")
+        mdFile.new_list(project_list)
+
+        # Current Project Details
+        project_name = project_info.iloc[0]['proj_short_name']
+        project_id = project_info.iloc[0]['proj_id']
+
+        mdFile.new_header(level=2, title='Current Project Details')
         mdFile.new_list(['**Project Name:** ' + project_name,
                          '**Project ID:** ' + project_id,
                          '**Date Assessed:** ' + self.split_date.strftime('%Y-%m-%d')])
+
+        # Milestones
+        mdFile.new_header(level=2, title='Milestones')
+
+        milestone_data = ['Task ID', 'Milestone Name', 'Planned Start', 'Planned End', 'Actual Start', 'Actual End']
+        for _, row in self.xer.task_df.iterrows():
+            if row['task_type'] in ['TT_Mile', 'TT_FinMile']:
+                task_code = row['task_code']
+                task_name = row['task_name']
+                planned_start = row['target_start_date'].strftime('%Y-%m-%d') if pd.notnull(
+                    row['target_start_date']) else 'N/A'
+                planned_end = row['target_end_date'].strftime('%Y-%m-%d') if pd.notnull(
+                    row['target_end_date']) else 'N/A'
+                actual_start = row['act_start_date'].strftime('%Y-%m-%d') if pd.notnull(
+                    row['act_start_date']) else 'N/A'
+                actual_end = row['act_end_date'].strftime('%Y-%m-%d') if pd.notnull(row['act_end_date']) else 'N/A'
+                milestone_data.extend([task_code, task_name, planned_start, planned_end, actual_start, actual_end])
+
+        mdFile.new_table(columns=6, rows=len(milestone_data) // 6, text=milestone_data, text_align='center')
+
+        # Activities in the Period
+        mdFile.new_header(level=2, title='Activities in the Period')
 
         # Activities in the Period
         mdFile.new_header(level=2, title='Activities in the Period')
