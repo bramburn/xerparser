@@ -176,6 +176,7 @@ class TotalFloatCPMCalculator:
         for node in self.graph.nodes:
             if self.graph.nodes[node]['task_type'] == 'TT_WBS':
                 self.graph.nodes[node]['subtasks'] = self.get_subtasks(node)
+
     def forward_pass(self):
         project_start = pd.to_datetime(self.xer.project_df['plan_start_date'].iloc[0])
         self.logger.info("Starting forward pass")
@@ -186,8 +187,13 @@ class TotalFloatCPMCalculator:
             self.early_finish[node] = None
 
         for node in nx.topological_sort(self.graph):
+            task_type = self.graph.nodes[node]['task_type']
             act_start = self.graph.nodes[node]['act_start_date']
             act_end = self.graph.nodes[node]['act_end_date']
+
+            if task_type == 'TT_LOE':
+                # Level of Effort tasks are scheduled based on their dependencies
+                continue
 
             if pd.notnull(act_start) and act_start <= self.data_date:
                 # Task has started
@@ -197,7 +203,6 @@ class TotalFloatCPMCalculator:
                     self.early_finish[node] = act_end
                 else:
                     # Task is in progress
-                    # Convert the result of add_working_days to Timestamp
                     calculated_finish = self.working_day_calculator.add_working_days(
                         act_start,
                         self.graph.nodes[node]['duration'],
@@ -239,12 +244,49 @@ class TotalFloatCPMCalculator:
                 self.early_start[node], _ = self.apply_activity_constraints(node, is_forward_pass=True)
 
                 # Calculate early finish
-                calculated_finish = self.working_day_calculator.add_working_days(
-                    self.early_start[node],
-                    self.graph.nodes[node]['duration'],
-                    self.graph.nodes[node]['calendar_id']
-                )
-                self.early_finish[node] = pd.Timestamp(calculated_finish)
+                if task_type in ['TT_Mile', 'TT_FinMile']:
+                    self.early_finish[node] = self.early_start[node]
+                elif task_type == 'TT_WBS':
+                    # For WBS summary tasks, early finish is the max of its subtasks
+                    subtasks = self.graph.nodes[node]['subtasks']
+                    if subtasks:
+                        self.early_finish[node] = max(self.early_finish[subtask] for subtask in subtasks)
+                    else:
+                        self.early_finish[node] = self.early_start[node]
+                else:
+                    calculated_finish = self.working_day_calculator.add_working_days(
+                        self.early_start[node],
+                        self.graph.nodes[node]['duration'],
+                        self.graph.nodes[node]['calendar_id']
+                    )
+                    self.early_finish[node] = pd.Timestamp(calculated_finish)
+
+        # Handle LOE tasks after all other tasks have been scheduled
+        for node in self.graph.nodes:
+            if self.graph.nodes[node]['task_type'] == 'TT_LOE':
+                predecessors = list(self.graph.predecessors(node))
+                successors = list(self.graph.successors(node))
+
+                if predecessors:
+                    predecessor_starts = [self.early_start[pred] for pred in predecessors if
+                                          self.early_start[pred] is not None]
+                    self.early_start[node] = min(predecessor_starts) if predecessor_starts else self.data_date
+                else:
+                    self.early_start[node] = self.data_date
+
+                if successors:
+                    successor_finishes = [self.early_finish[succ] for succ in successors if
+                                          self.early_finish[succ] is not None]
+                    if successor_finishes:
+                        self.early_finish[node] = max(successor_finishes)
+                    else:
+                        # If all successors have None as early_finish, use project end date
+                        non_none_finishes = [finish for finish in self.early_finish.values() if finish is not None]
+                        self.early_finish[node] = max(non_none_finishes) if non_none_finishes else self.data_date
+                else:
+                    # If there are no successors, use project end date
+                    non_none_finishes = [finish for finish in self.early_finish.values() if finish is not None]
+                    self.early_finish[node] = max(non_none_finishes) if non_none_finishes else self.data_date
 
         self.logger.info("Forward pass completed")
 
@@ -252,7 +294,7 @@ class TotalFloatCPMCalculator:
         self.logger.info("Starting backward pass")
 
         # Find the latest early finish date as the project end date
-        project_end = max(self.early_finish.values())
+        project_end = max(finish for finish in self.early_finish.values() if finish is not None)
 
         # Initialize late finish times for all nodes
         for node in self.graph.nodes:
@@ -260,8 +302,13 @@ class TotalFloatCPMCalculator:
             self.late_finish[node] = None
 
         for node in reversed(list(nx.topological_sort(self.graph))):
+            task_type = self.graph.nodes[node]['task_type']
             act_start = self.graph.nodes[node]['act_start_date']
             act_end = self.graph.nodes[node]['act_end_date']
+
+            if task_type == 'TT_LOE':
+                # Level of Effort tasks are scheduled based on their dependencies
+                continue
 
             if pd.notnull(act_end) and act_end <= self.data_date:
                 # Task is completed
@@ -309,61 +356,141 @@ class TotalFloatCPMCalculator:
                 _, self.late_finish[node] = self.apply_activity_constraints(node, is_forward_pass=False)
 
                 # Calculate late start
-                calculated_start = self.working_day_calculator.add_working_days(
-                    self.late_finish[node],
-                    -self.graph.nodes[node]['duration'],
-                    self.graph.nodes[node]['calendar_id']
-                )
-                self.late_start[node] = pd.Timestamp(calculated_start)  # Ensure late_start is a Timestamp
+                if task_type in ['TT_Mile', 'TT_FinMile']:
+                    self.late_start[node] = self.late_finish[node]
+                elif task_type == 'TT_WBS':
+                    # For WBS summary tasks, late start is the min of its subtasks
+                    subtasks = self.graph.nodes[node]['subtasks']
+                    if subtasks:
+                        self.late_start[node] = min(self.late_start[subtask] for subtask in subtasks)
+                    else:
+                        self.late_start[node] = self.late_finish[node]
+                else:
+                    calculated_start = self.working_day_calculator.add_working_days(
+                        self.late_finish[node],
+                        -self.graph.nodes[node]['duration'],
+                        self.graph.nodes[node]['calendar_id']
+                    )
+                    self.late_start[node] = pd.Timestamp(calculated_start)
 
             # Ensure late dates are not earlier than data date for future tasks
             if pd.isnull(act_start) or act_start > self.data_date:
                 self.late_start[node] = max(pd.Timestamp(self.late_start[node]), pd.Timestamp(self.data_date))
                 self.late_finish[node] = max(pd.Timestamp(self.late_finish[node]), pd.Timestamp(self.data_date))
 
+        # Handle LOE tasks after all other tasks have been scheduled
+        for node in self.graph.nodes:
+            if self.graph.nodes[node]['task_type'] == 'TT_LOE':
+                predecessors = list(self.graph.predecessors(node))
+                successors = list(self.graph.successors(node))
+
+                if successors:
+                    successor_starts = [self.late_start[succ] for succ in successors if
+                                        self.late_start[succ] is not None]
+                    if successor_starts:
+                        self.late_start[node] = min(successor_starts)
+                    else:
+                        self.late_start[node] = project_end
+                else:
+                    self.late_start[node] = project_end
+
+                if predecessors:
+                    predecessor_finishes = [self.late_finish[pred] for pred in predecessors if
+                                            self.late_finish[pred] is not None]
+                    if predecessor_finishes:
+                        self.late_finish[node] = max(predecessor_finishes)
+                    else:
+                        self.late_finish[node] = project_end
+                else:
+                    self.late_finish[node] = project_end
+
         self.logger.info("Backward pass completed")
+
     def calculate_total_float(self):
         for node in self.graph.nodes:
-            if pd.notnull(self.graph.nodes[node]['act_end_date']) and self.graph.nodes[node][
+            task_type = self.graph.nodes[node]['task_type']
+
+            if task_type == 'TT_LOE':
+                # Level of Effort tasks are not on the critical path
+                self.total_float[node] = float('inf')
+            elif task_type == 'TT_WBS':
+                # WBS Summary tasks' float is the minimum float of their subtasks
+                subtasks = self.graph.nodes[node]['subtasks']
+                if subtasks:
+                    self.total_float[node] = min(
+                        self.total_float[subtask] for subtask in subtasks if subtask in self.total_float)
+                else:
+                    self.total_float[node] = 0
+            elif pd.notnull(self.graph.nodes[node]['act_end_date']) and self.graph.nodes[node][
                 'act_end_date'] <= self.data_date:
+                # Completed tasks have zero float
                 self.total_float[node] = 0
             else:
-                self.total_float[node] = self.working_day_calculator.get_working_days_between(
-                    max(self.early_start[node], self.data_date),
-                    self.late_start[node],
-                    self.graph.nodes[node]['calendar_id']
-                )
+                # Calculate float for other task types
+                early_start = max(self.early_start[node], self.data_date)
+                late_start = self.late_start[node]
+
+                if pd.isnull(early_start) or pd.isnull(late_start):
+                    self.logger.warning(
+                        f"Unable to calculate total float for task {node}: missing early or late start.")
+                    self.total_float[node] = None
+                else:
+                    self.total_float[node] = self.working_day_calculator.get_working_days_between(
+                        early_start,
+                        late_start,
+                        self.graph.nodes[node]['calendar_id']
+                    )
+
+            # Log any negative float as it might indicate a scheduling issue
+            if self.total_float[node] is not None and self.total_float[node] < 0:
+                self.logger.warning(f"Negative total float detected for task {node}: {self.total_float[node]}")
 
     def determine_critical_path(self, float_threshold=0):
         self.critical_path = []
-        completed_tasks = set(node for node in self.graph.nodes if
-                              pd.notnull(self.graph.nodes[node]['act_end_date']) and self.graph.nodes[node][
-                                  'act_end_date'] <= self.data_date)
+        critical_tasks = []
 
-        # Identify tasks with total float less than or equal to the threshold
-        critical_tasks = [node for node, tf in self.total_float.items() if tf <= float_threshold]
+        for node, data in self.graph.nodes(data=True):
+            task_type = data['task_type']
+            total_float = self.total_float.get(node)
 
-        # Include completed tasks with zero total float in the critical path
-        critical_tasks.extend(node for node in completed_tasks if self.total_float[node] == 0)
+            if task_type == 'TT_LOE':
+                continue  # Exclude Level of Effort tasks from critical path
 
-        # Ensure continuity of the critical path
-        for task in critical_tasks:
-            if not self.critical_path:
-                self.critical_path.append(task)
-            else:
-                predecessors = list(self.graph.predecessors(task))
-                if any(pred in self.critical_path for pred in predecessors):
-                    self.critical_path.append(task)
+            if total_float is None:
+                self.logger.warning(
+                    f"Task {node} has no total float calculated. Skipping in critical path determination.")
+                continue
 
-        # Verify that the critical path starts from the project start and ends at the project end
+            if total_float <= float_threshold:
+                critical_tasks.append(node)
+
+        # Sort critical tasks topologically
+        try:
+            critical_subgraph = self.graph.subgraph(critical_tasks)
+            self.critical_path = list(nx.topological_sort(critical_subgraph))
+        except nx.NetworkXUnfeasible:
+            self.logger.error("Critical path contains a cycle. Unable to determine a valid critical path.")
+            return
+
+        # Verify critical path continuity
+        for i in range(len(self.critical_path) - 1):
+            current_task = self.critical_path[i]
+            next_task = self.critical_path[i + 1]
+            if next_task not in self.graph.successors(current_task):
+                self.logger.warning(f"Discontinuity in critical path between tasks {current_task} and {next_task}")
+
+        # Check if critical path starts from a start task and ends at an end task
         start_tasks = [node for node in self.graph.nodes if not list(self.graph.predecessors(node))]
         end_tasks = [node for node in self.graph.nodes if not list(self.graph.successors(node))]
 
-        if not any(start_task in self.critical_path for start_task in start_tasks):
-            self.logger.warning("Critical path does not start from the project start task.")
+        if self.critical_path and self.critical_path[0] not in start_tasks:
+            self.logger.warning("Critical path does not start from a project start task.")
 
-        if not any(end_task in self.critical_path for end_task in end_tasks):
-            self.logger.warning("Critical path does not end at the project end task.")
+        if self.critical_path and self.critical_path[-1] not in end_tasks:
+            self.logger.warning("Critical path does not end at a project end task.")
+
+        # Log the identified critical path
+        self.logger.info(f"Critical path identified: {' -> '.join(map(str, self.critical_path))}")
     def calculate_critical_path(self):
         self.working_day_calculator = WorkingDayCalculator(self.workdays_df, self.exceptions_df)
         self.build_graph()
