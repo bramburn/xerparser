@@ -120,10 +120,10 @@ class TotalFloatCPMCalculator:
 
         return early_start, late_finish
 
-    def set_workday_df(self, workday):
+    def set_workdays_df(self, workday):
         self.workdays_df = workday.copy()
 
-    def set_exception_df(self, exception):
+    def set_exceptions_df(self, exception):
         self.exceptions_df = exception.copy()
 
     def build_graph(self):
@@ -175,6 +175,16 @@ class TotalFloatCPMCalculator:
         for node in self.graph.nodes:
             if self.graph.nodes[node]['task_type'] == 'TT_WBS':
                 self.graph.nodes[node]['subtasks'] = self.get_subtasks(node)
+
+    def detect_cycles(self):
+        try:
+            cycles = list(nx.simple_cycles(self.graph))
+            if cycles:
+                self.logger.error(f"Cycles detected in the graph: {cycles}")
+                return cycles
+            return []
+        except nx.NetworkXNoCycle:
+            return []
 
     def forward_pass(self):
         project_start = pd.to_datetime(self.xer.project_df['plan_start_date'].iloc[0])
@@ -523,12 +533,16 @@ class TotalFloatCPMCalculator:
     def calculate_critical_path(self):
         self.working_day_calculator = WorkingDayCalculator(self.workdays_df, self.exceptions_df)
         self.build_graph()
+
+        cycles = self.detect_cycles()
+        if cycles:
+            self.logger.error("Cannot calculate critical path due to cycles in the graph.")
+            return []
+
         self.forward_pass()
         self.backward_pass()
         self.calculate_total_float()
-        self.determine_critical_path()
-        return self.critical_path
-
+        return self.determine_critical_path()
     def update_task_df(self):
         '''
         This method updates the actual dataframe, prior to this, nothing is changed in the XER class

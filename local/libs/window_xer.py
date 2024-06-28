@@ -1,12 +1,15 @@
-from typing import Tuple, NamedTuple, Union, Optional, List, Dict, Set
-import pandas as pd
-import os
 import logging
-from xerparser import Xer
-from local.libs.xer_file_creation import XerFileGenerator
-from local.libs.total_float_method import TotalFloatCPMCalculator
+import os
+import datetime
+
+from typing import Tuple, NamedTuple, Union, Optional, List, Dict, Set
+
+import pandas as pd
 from mdutils import MdUtils
-from mdutils.tools import TableOfContents
+
+from local.libs.total_float_method import TotalFloatCPMCalculator
+from local.libs.xer_file_creation import XerFileGenerator
+from xerparser import Xer
 
 
 class WindowXER(NamedTuple):
@@ -47,8 +50,8 @@ class WindowAnalyzer:
         window_xer = self.xer_generator.create_modified_copy(date)
 
         calculator = TotalFloatCPMCalculator(window_xer)
-        calculator.set_workday_df(window_xer.workday_df)
-        calculator.set_exception_df(window_xer.exception_df)
+        calculator.set_workdays_df(window_xer.workdays_df)
+        calculator.set_exceptions_df(window_xer.exceptions_df)
         critical_path = calculator.calculate_critical_path()
         calculator.update_task_df()
 
@@ -60,6 +63,10 @@ class WindowAnalyzer:
         return WindowXER(window_xer, critical_path, file_name)
 
     def filter_tasks(self, tasks_df: pd.DataFrame, start_date: pd.Timestamp, end_date: pd.Timestamp) -> pd.DataFrame:
+        # Convert target_start_date and target_end_date to datetime if they are not
+        tasks_df['target_start_date'] = pd.to_datetime(tasks_df['target_start_date'])
+        tasks_df['target_end_date'] = pd.to_datetime(tasks_df['target_end_date'])
+
         return tasks_df[
             (tasks_df['target_start_date'] >= start_date) &
             (tasks_df['target_end_date'] <= end_date) &
@@ -89,15 +96,13 @@ class WindowAnalyzer:
         mdFile.new_paragraph(f"Start Date: {start_date.strftime('%Y-%m-%d')}")
         mdFile.new_paragraph(f"End Date: {end_date.strftime('%Y-%m-%d')}")
 
-    def format_date(self, date: Union[pd.Timestamp, str, None], suffix: str = '') -> Optional[str]:
+    def format_date(self, date: Union[pd.Timestamp, datetime.date, str, None], suffix: str = '') -> Optional[str]:
         if pd.notnull(date):
-            if isinstance(date, pd.Timestamp):
-                return f"{date.strftime('%Y-%m-%d')}{suffix}"
-            elif isinstance(date, str):
-                try:
-                    return f"{pd.to_datetime(date).strftime('%Y-%m-%d')}{suffix}"
-                except ValueError:
-                    return date  # Return the original string if it can't be parsed
+            try:
+                formatted_date = pd.to_datetime(date).strftime('%Y-%m-%d')
+                return f"{formatted_date}{suffix}"
+            except ValueError:
+                return str(date)  # Return the original string if it can't be parsed
         return None
 
     def add_critical_path_comparison(self, md_file_utils: MdUtils, start_window: WindowXER, end_window: WindowXER):
@@ -223,7 +228,8 @@ class WindowAnalyzer:
                 'actual_data': ["(not started)", "(not started)", "(not started)"]
             }
 
-    def generate_window_data_and_progress(self, start_date: Union[str, pd.Timestamp], end_date: Union[str, pd.Timestamp]) -> Tuple[WindowXER, WindowXER]:
+    def generate_window_data_and_progress(self, start_date: Union[str, pd.Timestamp],
+                                          end_date: Union[str, pd.Timestamp]) -> Tuple[WindowXER, WindowXER]:
         if self.start_window_xer_folder_path is None or self.end_window_xer_folder_path is None:
             logging.error("Both start and end window XER file paths must be set.")
             raise ValueError("Both start and end window XER file paths must be set.")
