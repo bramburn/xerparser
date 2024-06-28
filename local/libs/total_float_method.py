@@ -531,12 +531,21 @@ class TotalFloatCPMCalculator:
         return self.critical_path
 
     def update_task_df(self):
+        '''
+        This method updates the actual dataframe, prior to this, nothing is changed in the XER class
+        once it is changed it changes the provide XER
+
+        '''
         self.xer.task_df['early_start'] = self.xer.task_df['task_id'].map(self.early_start)
         self.xer.task_df['early_finish'] = self.xer.task_df['task_id'].map(self.early_finish)
         self.xer.task_df['late_start'] = self.xer.task_df['task_id'].map(self.late_start)
         self.xer.task_df['late_finish'] = self.xer.task_df['task_id'].map(self.late_finish)
         self.xer.task_df['total_float'] = self.xer.task_df['task_id'].map(self.total_float)
-        self.xer.task_df['is_critical'] = self.xer.task_df['task_id'].isin(self.critical_path)
+        # Set all tasks as not critical first
+        self.xer.task_df['is_critical'] = False
+
+        # Update critical tasks based on the critical path
+        self.xer.task_df.loc[self.xer.task_df['task_id'].isin(self.critical_path), 'is_critical'] = True
         self.xer.task_df['target_start_date'] = self.xer.task_df.apply(self.calculate_forecast_start, axis=1)
         self.xer.task_df['target_end_date'] = self.xer.task_df.apply(self.calculate_forecast_finish, axis=1)
 
