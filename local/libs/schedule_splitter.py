@@ -8,6 +8,7 @@ from datetime import datetime
 from mdutils import MdUtils
 from mdutils.tools.Table import Table
 
+from local.libs.total_float_method import TotalFloatCPMCalculator
 from local.libs.xer_file_creation import XerFileGenerator, ProgressCalculator
 from xerparser import Xer
 
@@ -76,7 +77,7 @@ class ScheduleSplitter:
 
     def generate_window_data_and_progress(self, start_date: str, end_date: str) -> Tuple[Xer, pd.DataFrame]:
 
-        if self.start_window_xer_folder_path is None or self.end_window_xer_filepath is None:
+        if self.start_window_xer_folder_path is None or self.end_window_xer_folder_path is None:
             logging.error("Both start and end window XER file paths must be set.")
             raise ValueError("Both start and end window XER file paths must be set.")
 
@@ -85,18 +86,38 @@ class ScheduleSplitter:
 
         xer_generator = XerFileGenerator(self.xer)
         # process the late one first
+        # todo: refactor duplication
         end_window_xer = xer_generator.create_modified_copy(end_date)
+
+        # progress the XER file and schedule it
+        end_window_xer_calculator = TotalFloatCPMCalculator(end_window_xer)
+        end_window_xer_calculator.set_workday_df(end_window_xer.workday_df)
+        end_window_xer_calculator.set_exception_df(end_window_xer.exception_df)
+        end_window_xer_critical_path = end_window_xer_calculator.calculate_critical_path()
+        end_window_xer_calculator.update_task_df()
+
         # save file
         date_prefix = self.end_date.strftime("%Y-%m-%d")
         file_name = os.path.join(self.end_window_xer_folder_path, f"{date_prefix}_end_window.xer")
-        xer_generator.generate_xer_file(self.end_window_xer_folder_path, date_prefix)
+        xer_generator.build_xer_file(end_window_xer, file_name) # build the xer file
+
+        # build individual report highlight Milestones, and critical path
+        # todo: generate the markdown report
 
         # update the progress to the start window
         start_window_xer = xer_generator.create_modified_copy(start_date)
 
+        # schedule the start XER file
+        start_window_xer_calculator = TotalFloatCPMCalculator(start_window_xer)
+        start_window_xer_calculator.set_workday_df(start_window_xer.workday_df)
+        start_window_xer_calculator.set_exception_df(start_window_xer.exception_df)
+        start_window_xer_critical_path = start_window_xer_calculator.calculate_critical_path()
+        start_window_xer_calculator.update_task_df()
+
         # save file
         date_prefix = self.start_date.strftime("%Y-%m-%d")
-        xer_generator.generate_xer_file(self.start_window_xer_folder_path, date_prefix)
+        file_name = os.path.join(self.end_window_xer_folder_path, f"{date_prefix}_start_window.xer")
+        xer_generator.build_xer_file(end_window_xer, file_name) # build the xer file
 
         # now we need to produce the report for the start and end window
 
