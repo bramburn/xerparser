@@ -1,12 +1,11 @@
 # total_float_method.py
 import logging
+
 import networkx as nx
 import pandas as pd
 from mdutils import MdUtils
 
-from local.libs.calendar_parser import CalendarParser
 from local.libs.working_day_calculator import WorkingDayCalculator
-from pandas import Timestamp
 
 
 class TotalFloatCPMCalculator:
