@@ -15,8 +15,7 @@ from xerparser import Xer
 
 class ScheduleSplitter:
     def __init__(self, xer):
-        self.end_window_xer_folder_path = None
-        self.start_window_xer_folder_path = None
+
         self.xer = xer
         self.modified_xer = None
         self.filtered_tasks = None
@@ -65,65 +64,7 @@ class ScheduleSplitter:
 
         return self.modified_xer, self.filtered_tasks
 
-    def set_start_window_xer_filepath(self, start_window_xer_folder_path: str):
-        if os.path.isdir(start_window_xer_folder_path):
-            self.start_window_xer_folder_path = start_window_xer_folder_path
-        else:
-            raise ValueError("The provided path is not a valid directory.")
 
-    def set_end_window_xer_filepath(self, end_window_xer_foler_path: str):
-        if os.path.isdir(end_window_xer_foler_path):
-            self.end_window_xer_folder_path = end_window_xer_foler_path
-
-    def generate_window_data_and_progress(self, start_date: str, end_date: str) -> Tuple[Xer, pd.DataFrame]:
-
-        if self.start_window_xer_folder_path is None or self.end_window_xer_folder_path is None:
-            logging.error("Both start and end window XER file paths must be set.")
-            raise ValueError("Both start and end window XER file paths must be set.")
-
-        start_date = pd.to_datetime(start_date)
-        end_date = pd.to_datetime(end_date)
-
-        xer_generator = XerFileGenerator(self.xer)
-        # process the late one first
-        # todo: refactor duplication
-        end_window_xer = xer_generator.create_modified_copy(end_date)
-
-        # progress the XER file and schedule it
-        end_window_xer_calculator = TotalFloatCPMCalculator(end_window_xer)
-        end_window_xer_calculator.set_workday_df(end_window_xer.workday_df)
-        end_window_xer_calculator.set_exception_df(end_window_xer.exception_df)
-        end_window_xer_critical_path = end_window_xer_calculator.calculate_critical_path()
-        end_window_xer_calculator.update_task_df()
-
-        # save file
-        date_prefix = self.end_date.strftime("%Y-%m-%d")
-        file_name = os.path.join(self.end_window_xer_folder_path, f"{date_prefix}_end_window.xer")
-        xer_generator.build_xer_file(end_window_xer, file_name) # build the xer file
-
-        # build individual report highlight Milestones, and critical path
-        # todo: generate the markdown report
-
-        # update the progress to the start window
-        start_window_xer = xer_generator.create_modified_copy(start_date)
-
-        # schedule the start XER file
-        start_window_xer_calculator = TotalFloatCPMCalculator(start_window_xer)
-        start_window_xer_calculator.set_workday_df(start_window_xer.workday_df)
-        start_window_xer_calculator.set_exception_df(start_window_xer.exception_df)
-        start_window_xer_critical_path = start_window_xer_calculator.calculate_critical_path()
-        start_window_xer_calculator.update_task_df()
-
-        # save file
-        date_prefix = self.start_date.strftime("%Y-%m-%d")
-        file_name = os.path.join(self.end_window_xer_folder_path, f"{date_prefix}_start_window.xer")
-        xer_generator.build_xer_file(end_window_xer, file_name) # build the xer file
-
-        # now we need to produce the report for the start and end window
-
-        return (start_window_xer, end_window_xer)
-
-        # compare the windows milestone and activities planned vs complete
 
     def filter_tasks(self, tasks_df, start_date, end_date):
         return tasks_df[
