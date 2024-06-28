@@ -1,4 +1,4 @@
-from typing import Tuple, NamedTuple
+from typing import Tuple, NamedTuple, Union, Optional, List, Dict, Set
 import pandas as pd
 import os
 import logging
@@ -16,7 +16,7 @@ class WindowXER(NamedTuple):
 
 
 class WindowAnalyzer:
-    def __init__(self, xer, start_window_folder_path, end_window_folder_path):
+    def __init__(self, xer: Xer, start_window_folder_path: str, end_window_folder_path: str):
         self.xer = xer
         self.start_window_xer_folder_path = start_window_folder_path
         self.end_window_xer_folder_path = end_window_folder_path
@@ -38,7 +38,7 @@ class WindowAnalyzer:
 
         return WindowXER(window_xer, critical_path, file_name)
 
-    def filter_tasks(self, tasks_df, start_date, end_date):
+    def filter_tasks(self, tasks_df: pd.DataFrame, start_date: pd.Timestamp, end_date: pd.Timestamp) -> pd.DataFrame:
         return tasks_df[
             (tasks_df['target_start_date'] >= start_date) &
             (tasks_df['target_end_date'] <= end_date) &
@@ -68,15 +68,24 @@ class WindowAnalyzer:
         mdFile.new_paragraph(f"Start Date: {start_date.strftime('%Y-%m-%d')}")
         mdFile.new_paragraph(f"End Date: {end_date.strftime('%Y-%m-%d')}")
 
-    def add_critical_path_comparison(self, mdFile: MdUtils, start_window: WindowXER, end_window: WindowXER):
-        mdFile.new_header(level=1, title="Critical Path Comparison")
+    def format_date(self, date: Union[pd.Timestamp, str, None], suffix: str = '') -> Optional[str]:
+        if pd.notnull(date):
+            if isinstance(date, pd.Timestamp):
+                return f"{date.strftime('%Y-%m-%d')}{suffix}"
+            elif isinstance(date, str):
+                try:
+                    return f"{pd.to_datetime(date).strftime('%Y-%m-%d')}{suffix}"
+                except ValueError:
+                    return date  # Return the original string if it can't be parsed
+        return None
 
-        # Create sets of critical path task_ids
-        start_critical_set = set(start_window.critical_path)
-        end_critical_set = set(end_window.critical_path)
-        all_critical_tasks = start_critical_set.union(end_critical_set)
+    def add_critical_path_comparison(self, md_file_utils: MdUtils, start_window: WindowXER, end_window: WindowXER):
+        md_file_utils.new_header(level=1, title="Critical Path Comparison")
 
-        # Table headers
+        start_critical_set: Set[str] = set(start_window.critical_path)
+        end_critical_set: Set[str] = set(end_window.critical_path)
+        all_critical_tasks: Set[str] = start_critical_set.union(end_critical_set)
+
         table_headers = ["Task Code", "Task Name", "Start", "End", "Critical 1*", "Critical 2**"]
         table_data = table_headers.copy()
 
@@ -86,59 +95,50 @@ class WindowAnalyzer:
             end_task = end_window.xer.task_df[end_window.xer.task_df['task_id'] == task_id].iloc[
                 0] if task_id in end_critical_set else None
 
-            task = end_task if end_task is not None else start_task
+            task: pd.Series = end_task if end_task is not None else start_task
             task_code = task['task_code']
             task_name = task['task_name']
 
-            # Determine start date
-            if pd.notnull(task['act_start_date']):
-                start_date = f"{task['act_start_date'].strftime('%Y-%m-%d')}A"
-            elif pd.notnull(task['target_start_date']):
-                start_date = task['target_start_date'].strftime('%Y-%m-%d')
-            else:
-                start_date = "N/A"
+            start_date = self.format_date(task['act_start_date'], 'A') or self.format_date(
+                task['target_start_date']) or "N/A"
+            end_date = self.format_date(task['act_end_date'], 'A') or self.format_date(task['target_end_date']) or "N/A"
 
-            # Determine end date
-            if pd.notnull(task['act_end_date']):
-                end_date = f"{task['act_end_date'].strftime('%Y-%m-%d')}A"
-            elif pd.notnull(task['target_end_date']):
-                end_date = task['target_end_date'].strftime('%Y-%m-%d')
-            else:
-                end_date = "N/A"
-
-            # Determine criticality
             critical_1 = "True" if task_id in start_critical_set else "False"
             critical_2 = "True" if task_id in end_critical_set else "False"
 
             table_data.extend([task_code, task_name, start_date, end_date, critical_1, critical_2])
 
-        # Create the table
-        num_rows = len(all_critical_tasks) + 1  # +1 for the header row
-        mdFile.new_table(columns=6, rows=num_rows, text=table_data, text_align='left')
+        num_rows = len(all_critical_tasks) + 1
+        md_file_utils.new_table(columns=6, rows=num_rows, text=table_data, text_align='left')
+
+        md_file_utils.new_paragraph("*Critical 1: Critical path status at the start of the window")
+        md_file_utils.new_paragraph("**Critical 2: Critical path status at the end of the window")
+        md_file_utils.new_paragraph("A: Actual date")
 
         # Add footnotes
-        mdFile.new_paragraph("*Critical 1: Critical path status at the start of the window")
-        mdFile.new_paragraph("**Critical 2: Critical path status at the end of the window")
-        mdFile.new_paragraph("A: Actual date")
+        md_file_utils.new_paragraph("*Critical 1: Critical path status at the start of the window")
+        md_file_utils.new_paragraph("**Critical 2: Critical path status at the end of the window")
+        md_file_utils.new_paragraph("A: Actual date")
 
         # Summary of changes
         added_tasks = end_critical_set - start_critical_set
         removed_tasks = start_critical_set - end_critical_set
 
         if added_tasks or removed_tasks:
-            mdFile.new_header(level=2, title="Changes in Critical Path")
+            md_file_utils.new_header(level=2, title="Changes in Critical Path")
             if added_tasks:
                 added_task_codes = [
                     end_window.xer.task_df[end_window.xer.task_df['task_id'] == task_id].iloc[0]['task_code'] for
                     task_id in added_tasks]
-                mdFile.new_paragraph(f"Tasks added to critical path: {', '.join(added_task_codes)}")
+                md_file_utils.new_paragraph(f"Tasks added to critical path: {', '.join(added_task_codes)}")
             if removed_tasks:
                 removed_task_codes = [
                     start_window.xer.task_df[start_window.xer.task_df['task_id'] == task_id].iloc[0]['task_code'] for
                     task_id in removed_tasks]
-                mdFile.new_paragraph(f"Tasks removed from critical path: {', '.join(removed_task_codes)}")
+                md_file_utils.new_paragraph(f"Tasks removed from critical path: {', '.join(removed_task_codes)}")
         else:
-            mdFile.new_paragraph("No changes in the critical path between start and end windows.")
+            md_file_utils.new_paragraph("No changes in the critical path between start and end windows.")
+
     def add_activities_in_period(self, mdFile: MdUtils, start_window: WindowXER, end_window: WindowXER,
                                  start_date: pd.Timestamp, end_date: pd.Timestamp):
         mdFile.new_header(level=1, title="Activities in the Period")
@@ -166,28 +166,31 @@ class WindowAnalyzer:
 
         return [task_code, actual_data['task_name']] + planned_data + actual_data['actual_data']
 
-    def get_planned_data(self, task: pd.DataFrame) -> list:
+    def get_planned_data(self, task: pd.DataFrame) -> List[str]:
         if not task.empty:
             task = task.iloc[0]
-            planned_start = task['target_start_date'].strftime('%Y-%m-%d')
-            planned_end = task['target_end_date'].strftime('%Y-%m-%d')
-            planned_duration = (task['target_end_date'] - task['target_start_date']).days
+            planned_start = self.format_date(task['target_start_date']) or "(new)"
+            planned_end = self.format_date(task['target_end_date']) or "(new)"
+            if planned_start != "(new)" and planned_end != "(new)":
+                planned_duration = (
+                        pd.to_datetime(task['target_end_date']) - pd.to_datetime(task['target_start_date'])).days
+            else:
+                planned_duration = "(new)"
             return [planned_start, planned_end, str(planned_duration)]
         else:
             return ["(new)", "(new)", "(new)"]
 
-    def get_actual_data(self, task: pd.DataFrame) -> dict:
+    def get_actual_data(self, task: pd.DataFrame) -> Dict[str, Union[str, List[str]]]:
         if not task.empty:
             task = task.iloc[0]
             task_name = task['task_name']
-            actual_start = task['act_start_date'].strftime('%Y-%m-%d') if pd.notnull(
-                task['act_start_date']) else "(not complete)"
+            actual_start = self.format_date(task['act_start_date']) or "(not complete)"
+            actual_end = self.format_date(task['act_end_date']) or "(not complete)"
 
-            if pd.notnull(task['act_end_date']):
-                actual_end = task['act_end_date'].strftime('%Y-%m-%d')
-                actual_duration = (task['act_end_date'] - task['act_start_date']).days
+            if actual_start != "(not complete)" and actual_end != "(not complete)":
+                actual_duration = (pd.to_datetime(task['act_end_date']) - pd.to_datetime(task['act_start_date'])).days
             else:
-                actual_end = actual_duration = "(not complete)"
+                actual_duration = "(not complete)"
 
             return {
                 'task_name': task_name,
@@ -199,7 +202,7 @@ class WindowAnalyzer:
                 'actual_data': ["(not started)", "(not started)", "(not started)"]
             }
 
-    def generate_window_data_and_progress(self, start_date: str, end_date: str) -> Tuple[WindowXER, WindowXER]:
+    def generate_window_data_and_progress(self, start_date: Union[str, pd.Timestamp], end_date: Union[str, pd.Timestamp]) -> Tuple[WindowXER, WindowXER]:
         if self.start_window_xer_folder_path is None or self.end_window_xer_folder_path is None:
             logging.error("Both start and end window XER file paths must be set.")
             raise ValueError("Both start and end window XER file paths must be set.")
