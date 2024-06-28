@@ -1,3 +1,5 @@
+import logging
+
 import pandas as pd
 from xerparser import CODEC, Xer
 
@@ -6,7 +8,7 @@ class XerFileGenerator:
     def __init__(self, xer):
         self.xer = xer
 
-    def create_modified_copy(self, split_date:pd.Timestamp):
+    def create_modified_copy(self, split_date: pd.Timestamp):
         """
         Create a copy of the entire Xer object with modified task progress and updated recalc date.
 
@@ -79,16 +81,23 @@ class XerFileGenerator:
             return str(value)
 
     def generate_xer_file(self, output_file: str, date_prefix: str = None):
-        """Generate and save the XER file."""
         if date_prefix:
             new_filename = f"{date_prefix}_{output_file}"
         else:
             new_filename = output_file
+        self.build_xer_file(self.xer, new_filename)
 
-        xer_contents = self.generate_xer_contents(self.xer)
-        with open(new_filename, 'w', encoding=CODEC) as f:
+    def build_xer_file(self, xer: Xer, output_file: str) -> str:
+        """Generate and save the XER file."""
+        # Ensure the output_file has a .xer extension
+        if not output_file.lower().endswith('.xer'):
+            output_file += '.xer'
+
+        xer_contents = self.generate_xer_contents(xer)
+        with open(output_file, 'w', encoding=CODEC) as f:
             f.write(xer_contents)
-        print(f"Updated XER file exported to: {new_filename}")
+        logging.info(f"XER file exported to: {output_file}")
+        return output_file
 
 
 class ProgressCalculator:
