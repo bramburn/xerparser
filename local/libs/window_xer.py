@@ -17,12 +17,33 @@ class WindowXER(NamedTuple):
 
 class WindowAnalyzer:
     def __init__(self, xer: Xer, start_window_folder_path: str, end_window_folder_path: str):
+        """
+        Initializes a new instance of the WindowAnalyzer class.
+
+        Args:
+            xer (Xer): The Xer object representing the original XER file.
+            start_window_folder_path (str): The path to the folder where the start window XER files will be saved.
+            end_window_folder_path (str): The path to the folder where the end window XER files will be saved.
+
+        Returns:
+            None
+        """
         self.xer = xer
         self.start_window_xer_folder_path = start_window_folder_path
         self.end_window_xer_folder_path = end_window_folder_path
         self.xer_generator = XerFileGenerator(self.xer)
 
     def process_window(self, date: pd.Timestamp, is_end_window: bool) -> WindowXER:
+        """
+        Process the window based on the given date and window type.
+
+        Parameters:
+            date (pd.Timestamp): The date for which the window is being processed.
+            is_end_window (bool): A boolean indicating whether it's an end window or not.
+
+        Returns:
+            WindowXER: A named tuple containing the processed window XER, critical path information, and file path.
+        """
         window_xer = self.xer_generator.create_modified_copy(date)
 
         calculator = TotalFloatCPMCalculator(window_xer)
