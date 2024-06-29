@@ -539,16 +539,29 @@ class TotalFloatCPMCalculator:
             self.logger.error("Cycles detected in the graph. Attempting to break cycles.")
             self.break_cycles(cycles)
 
-        self.forward_pass()
-        self.backward_pass()
-        self.calculate_total_float()
-        return self.determine_critical_path()
+        # Check if cycles still exist and use a fallback method if necessary
+        if self.detect_cycles():
+            self.logger.warning("Cycles still exist after initial attempt to break them. Using fallback method.")
+            self.break_cycles_fallback()
 
+        # Final check for cycles
+        if self.detect_cycles():
+            self.logger.error("Unable to break all cycles. Cannot calculate critical path.")
+            return []
+
+        try:
+            self.forward_pass()
+            self.backward_pass()
+            self.calculate_total_float()
+            return self.determine_critical_path()
+        except nx.NetworkXUnfeasible:
+            self.logger.error("Unable to calculate critical path due to remaining cycles.")
+            return []
     def break_cycles(self, cycles):
         for cycle in cycles:
             # Find the edge with the largest lag to break
             max_lag = pd.Timedelta(seconds=0)
-            edge_to_break = None
+            edge_to_remove = None
             for i in range(len(cycle)):
                 u, v = cycle[i], cycle[(i + 1) % len(cycle)]
                 if self.graph.has_edge(u, v):
@@ -557,13 +570,47 @@ class TotalFloatCPMCalculator:
                         lag = pd.Timedelta(seconds=lag)
                     if lag > max_lag:
                         max_lag = lag
-                        edge_to_break = (u, v)
+                        edge_to_remove = (u, v)
 
-            if edge_to_break:
-                self.graph.remove_edge(*edge_to_break)
-                self.logger.warning(f"Removed edge {edge_to_break} to break cycle.")
+            if edge_to_remove:
+                self.graph.remove_edge(*edge_to_remove)
+                self.logger.warning(f"Removed edge {edge_to_remove} to break cycle.")
             else:
                 self.logger.error(f"Unable to break cycle: {cycle}")
+
+    def break_cycles_fallback(self):
+        while True:
+            try:
+                list(nx.topological_sort(self.graph))
+                break  # If topological sort succeeds, the graph is acyclic
+            except nx.NetworkXUnfeasible:
+                # Find a cycle
+                try:
+                    cycle = nx.find_cycle(self.graph)
+                    if not cycle:
+                        break  # No more cycles found
+                except nx.NetworkXNoCycle:
+                    break  # No cycle found
+
+                # Find the edge with the smallest weight (duration) to remove
+                min_weight = float('inf')
+                edge_to_remove = None
+                for u, v in cycle:
+                    weight = self.graph.nodes[v]['duration']
+                    if weight < min_weight:
+                        min_weight = weight
+                        edge_to_remove = (u, v)
+
+                if edge_to_remove:
+                    self.graph.remove_edge(*edge_to_remove)
+                    self.logger.warning(f"Removed edge {edge_to_remove} to break cycle in fallback method.")
+                else:
+                    self.logger.error("Unable to find an edge to remove in fallback method.")
+                    break
+
+        # After breaking cycles, check if the graph is acyclic
+        if list(nx.simple_cycles(self.graph)):
+            self.logger.error("Unable to break all cycles. The graph still contains cycles.")
     def update_task_df(self):
         '''
         This method updates the actual dataframe, prior to this, nothing is changed in the XER class
