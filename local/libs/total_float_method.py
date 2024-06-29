@@ -168,7 +168,7 @@ class TotalFloatCPMCalculator:
             except ValueError:
                 print(
                     f"Warning: Invalid lag for relationship {pred['pred_task_id']} -> {pred['task_id']}: {pred['lag_hr_cnt']}")
-                lag = pd.Timedelta(0, unit='h')
+                lag = pd.Timedelta(seconds=0)
             self.graph.add_edge(pred['pred_task_id'], pred['task_id'], lag=lag, taskpred_type=pred['pred_type'])
 
         # Handle WBS summary tasks
@@ -547,12 +547,14 @@ class TotalFloatCPMCalculator:
     def break_cycles(self, cycles):
         for cycle in cycles:
             # Find the edge with the largest lag to break
-            max_lag = -1
+            max_lag = pd.Timedelta(seconds=0)
             edge_to_break = None
             for i in range(len(cycle)):
                 u, v = cycle[i], cycle[(i + 1) % len(cycle)]
                 if self.graph.has_edge(u, v):
-                    lag = self.graph[u][v].get('lag', pd.Timedelta(0))
+                    lag = self.graph[u][v].get('lag', pd.Timedelta(seconds=0))
+                    if isinstance(lag, (int, float)):
+                        lag = pd.Timedelta(seconds=lag)
                     if lag > max_lag:
                         max_lag = lag
                         edge_to_break = (u, v)
@@ -562,7 +564,6 @@ class TotalFloatCPMCalculator:
                 self.logger.warning(f"Removed edge {edge_to_break} to break cycle.")
             else:
                 self.logger.error(f"Unable to break cycle: {cycle}")
-
     def update_task_df(self):
         '''
         This method updates the actual dataframe, prior to this, nothing is changed in the XER class
