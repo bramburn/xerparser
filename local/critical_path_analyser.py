@@ -58,6 +58,62 @@ class CriticalPathAnalyzer:
         except nx.NetworkXNoCycle:
             return False
 
+    def identify_cycles(self):
+        try:
+            cycles = list(nx.simple_cycles(self.G))
+            if cycles:
+                self.cycles = cycles
+                print("Cycles detected in the project network:")
+                for i, cycle in enumerate(cycles, 1):
+                    print(f"Cycle {i}: {' -> '.join(map(str, cycle + [cycle[0]]))}")
+            return cycles
+        except nx.NetworkXNoCycle:
+            print("No cycles detected in the project network.")
+            return []
+
+    def remove_cycles(self, method='auto', manual_breaks=None):
+        cycles = self.identify_cycles()
+        if not cycles:
+            return
+
+        if method == 'auto':
+            print("Automatically removing cycles by breaking the longest duration relationship in each cycle.")
+            for cycle in cycles:
+                max_duration = -1
+                edge_to_remove = None
+                for i in range(len(cycle)):
+                    u, v = cycle[i], cycle[(i + 1) % len(cycle)]
+                    if self.G.has_edge(u, v):
+                        duration = self.G.nodes[v].get('duration', 0)
+                        if duration > max_duration:
+                            max_duration = duration
+                            edge_to_remove = (u, v)
+
+                if edge_to_remove:
+                    self.G.remove_edge(*edge_to_remove)
+                    print(f"Removed edge {edge_to_remove} to break cycle.")
+
+        elif method == 'manual':
+            if not manual_breaks:
+                print("Error: Manual breaks not provided.")
+                return
+            for edge in manual_breaks:
+                if self.G.has_edge(*edge):
+                    self.G.remove_edge(*edge)
+                    print(f"Manually removed edge {edge} to break cycle.")
+                else:
+                    print(f"Warning: Edge {edge} not found in the graph.")
+
+        else:
+            print("Invalid method specified. Use 'auto' or 'manual'.")
+            return
+
+        remaining_cycles = self.identify_cycles()
+        if remaining_cycles:
+            print("Warning: Not all cycles could be removed.")
+        else:
+            print("All cycles have been successfully removed.")
+
     def remove_cycles(self):
         if not self.cycles:
             return
@@ -166,8 +222,29 @@ class CriticalPathAnalyzer:
     def analyze(self) -> Tuple[List[List[int]], Dict[int, float], float]:
         self.build_graph()
 
-        if self.detect_cycles():
-            self.remove_cycles()
+        cycles = self.identify_cycles()
+        if cycles:
+            print("\nChoose how to handle cycles:")
+            print("1. Automatically remove cycles")
+            print("2. Manually specify edges to remove")
+            print("3. Ignore cycles and continue analysis (not recommended)")
+            choice = input("Enter your choice (1/2/3): ")
+
+            if choice == '1':
+                self.remove_cycles(method='auto')
+            elif choice == '2':
+                manual_breaks = []
+                while True:
+                    edge = input("Enter an edge to remove (format: 'node1,node2'), or press Enter to finish: ")
+                    if not edge:
+                        break
+                    node1, node2 = edge.split(',')
+                    manual_breaks.append((node1.strip(), node2.strip()))
+                self.remove_cycles(method='manual', manual_breaks=manual_breaks)
+            elif choice == '3':
+                print("Continuing analysis with cycles present. Results may be unreliable.")
+            else:
+                print("Invalid choice. Continuing analysis with cycles present. Results may be unreliable.")
 
         self.identify_subgraphs()
 

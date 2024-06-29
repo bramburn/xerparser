@@ -536,28 +536,45 @@ class TotalFloatCPMCalculator:
 
         cycles = self.detect_cycles()
         if cycles:
-            self.logger.error("Cannot calculate critical path due to cycles in the graph.")
-            return []
+            self.logger.error("Cycles detected in the graph. Attempting to break cycles.")
+            self.break_cycles(cycles)
 
         self.forward_pass()
         self.backward_pass()
         self.calculate_total_float()
         return self.determine_critical_path()
+
+    def break_cycles(self, cycles):
+        for cycle in cycles:
+            # Find the edge with the largest lag to break
+            max_lag = -1
+            edge_to_break = None
+            for i in range(len(cycle)):
+                u, v = cycle[i], cycle[(i + 1) % len(cycle)]
+                if self.graph.has_edge(u, v):
+                    lag = self.graph[u][v].get('lag', pd.Timedelta(0))
+                    if lag > max_lag:
+                        max_lag = lag
+                        edge_to_break = (u, v)
+
+            if edge_to_break:
+                self.graph.remove_edge(*edge_to_break)
+                self.logger.warning(f"Removed edge {edge_to_break} to break cycle.")
+            else:
+                self.logger.error(f"Unable to break cycle: {cycle}")
+
     def update_task_df(self):
         '''
         This method updates the actual dataframe, prior to this, nothing is changed in the XER class
         once it is changed it changes the provide XER
 
         '''
-        self.xer.task_df['early_start'] = self.xer.task_df['task_id'].map(self.early_start)
-        self.xer.task_df['early_finish'] = self.xer.task_df['task_id'].map(self.early_finish)
-        self.xer.task_df['late_start'] = self.xer.task_df['task_id'].map(self.late_start)
-        self.xer.task_df['late_finish'] = self.xer.task_df['task_id'].map(self.late_finish)
-        self.xer.task_df['total_float'] = self.xer.task_df['task_id'].map(self.total_float)
-        # Set all tasks as not critical first
+        self.xer.task_df['early_start'] = self.xer.task_df['task_id'].map(self.early_start).fillna(pd.NaT)
+        self.xer.task_df['early_finish'] = self.xer.task_df['task_id'].map(self.early_finish).fillna(pd.NaT)
+        self.xer.task_df['late_start'] = self.xer.task_df['task_id'].map(self.late_start).fillna(pd.NaT)
+        self.xer.task_df['late_finish'] = self.xer.task_df['task_id'].map(self.late_finish).fillna(pd.NaT)
+        self.xer.task_df['total_float'] = self.xer.task_df['task_id'].map(self.total_float).fillna(float('inf'))
         self.xer.task_df['is_critical'] = False
-
-        # Update critical tasks based on the critical path
         self.xer.task_df.loc[self.xer.task_df['task_id'].isin(self.critical_path), 'is_critical'] = True
         self.xer.task_df['target_start_date'] = self.xer.task_df.apply(self.calculate_forecast_start, axis=1)
         self.xer.task_df['target_end_date'] = self.xer.task_df.apply(self.calculate_forecast_finish, axis=1)
@@ -566,15 +583,17 @@ class TotalFloatCPMCalculator:
         if pd.notnull(task['act_end_date']) and task['act_end_date'] <= self.data_date:
             return task['act_start_date']
         else:
-            return self.early_start[task['task_id']]
+            return self.early_start.get(task['task_id'], pd.NaT)
 
     def calculate_forecast_finish(self, task):
         if pd.notnull(task['act_end_date']) and task['act_end_date'] <= self.data_date:
             return task['act_end_date']
         else:
             forecast_start = self.calculate_forecast_start(task)
-            duration = self.graph.nodes[task['task_id']]['duration']
-            calendar_id = self.graph.nodes[task['task_id']]['calendar_id']
+            if pd.isnull(forecast_start):
+                return pd.NaT
+            duration = self.graph.nodes[task['task_id']].get('duration', 0)
+            calendar_id = self.graph.nodes[task['task_id']].get('calendar_id')
             forecast_finish = self.working_day_calculator.add_working_days(forecast_start, duration, calendar_id)
             return forecast_finish
 

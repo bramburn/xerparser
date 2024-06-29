@@ -8,12 +8,14 @@ class XerFileGenerator:
     def __init__(self, xer):
         self.xer = xer
 
-    def create_modified_copy(self, split_date: pd.Timestamp):
+    def create_modified_copy(self, progress_to_date
+    : pd.Timestamp):
         """
         Create a copy of the entire Xer object with modified task progress and updated recalc date.
 
         Args:
-            split_date (datetime): The date to set as the new last_recalc_date and calculate progress against.
+            progress_to_date
+             (datetime): The date to set as the new last_recalc_date and calculate progress against.
 
         Returns:
             Xer: A new Xer object with modified data.
@@ -32,7 +34,8 @@ class XerFileGenerator:
         # Update task progress
         if new_xer.task_df is not None:
             new_xer.task_df['progress'] = new_xer.task_df.apply(
-                lambda row: ProgressCalculator.calculate_progress(row, split_date),
+                lambda row: ProgressCalculator.calculate_progress(row, progress_to_date
+                                                                  ),
                 axis=1
             )
 
@@ -43,7 +46,8 @@ class XerFileGenerator:
 
         # Update last_recalc_date
         if new_xer.project_df is not None and 'last_recalc_date' in new_xer.project_df.columns:
-            new_xer.project_df['last_recalc_date'] = split_date.strftime('%Y-%m-%d %H:%M')
+            new_xer.project_df['last_recalc_date'] = (progress_to_date
+                                                      .strftime('%Y-%m-%d %H:%M'))
 
         return new_xer
 
@@ -102,12 +106,16 @@ class XerFileGenerator:
 
 class ProgressCalculator:
     @staticmethod
-    def calculate_progress(row, split_date):
-        if row['act_end_date'] <= split_date:
+    def calculate_progress(row, progress_to_date
+                           ):
+        if row['act_end_date'] <= progress_to_date\
+                :
             return 1.0
-        elif row['act_start_date'] > split_date:
+        elif row['act_start_date'] > progress_to_date\
+                :
             return 0.0
         elif pd.notnull(row['act_start_date']) and pd.notnull(row['act_end_date']):
-            return (split_date - row['act_start_date']) / (row['act_end_date'] - row['act_start_date'])
+            return (progress_to_date
+                    - row['act_start_date']) / (row['act_end_date'] - row['act_start_date'])
         else:
             return 0.0

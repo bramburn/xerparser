@@ -7,10 +7,10 @@ from local.libs.window_xer import WindowAnalyzer
 from xerparser import Xer
 
 date_format = "%Y-%m-%d %H:%M"
-asbuilt_file = r"baseline.xer"
+asbuilt_file = r"asbuilt.xer"
 
 # define the start and end dates for the filter
-start_date = '2022-11-11'  # example start date
+start_date = '2022-11-12'  # example start date
 end_date = '2022-11-30'  # example end date
 split_date = end_date
 
