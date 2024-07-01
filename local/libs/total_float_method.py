@@ -25,6 +25,7 @@ class TotalFloatCPMCalculator:
         self.total_float = {}
         self.critical_path = []
         self.data_date = pd.to_datetime(self.xer.project_df['last_recalc_date'].iloc[0])
+        self.cycles = []  # New property to store cycles
 
     def apply_activity_constraints(self, node, is_forward_pass=True):
         # Define valid constraint types
@@ -178,13 +179,22 @@ class TotalFloatCPMCalculator:
 
     def detect_cycles(self):
         try:
-            cycles = list(nx.simple_cycles(self.graph))
-            if cycles:
-                self.logger.error(f"Cycles detected in the graph: {cycles}")
-                return cycles
-            return []
+            self.cycles = list(nx.simple_cycles(self.graph))
+            if self.cycles:
+                self.logger.error(f"Cycles detected in the graph: {self.cycles}")
+            return self.cycles
         except nx.NetworkXNoCycle:
+            self.cycles = []
             return []
+
+    def get_cycles(self):
+        """
+        Returns an array of all the cycles in the tasks.
+
+        Returns:
+        list: A list of cycles, where each cycle is a list of task IDs forming the cycle.
+        """
+        return self.cycles
 
     def forward_pass(self):
         project_start = pd.to_datetime(self.xer.project_df['plan_start_date'].iloc[0])
@@ -545,7 +555,8 @@ class TotalFloatCPMCalculator:
             self.break_cycles_fallback()
 
         # Final check for cycles
-        if self.detect_cycles():
+        final_cycles = self.detect_cycles()
+        if final_cycles:
             self.logger.error("Unable to break all cycles. Cannot calculate critical path.")
             return []
 
