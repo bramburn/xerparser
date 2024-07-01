@@ -26,6 +26,7 @@ class TotalFloatCPMCalculator:
         self.critical_path = []
         self.data_date = pd.to_datetime(self.xer.project_df['last_recalc_date'].iloc[0])
         self.cycles = []  # New property to store cycles
+        self.removed_cycle_tasks = []  # New property to store removed tasks
 
     def apply_activity_constraints(self, node, is_forward_pass=True):
         # Define valid constraint types
@@ -568,9 +569,9 @@ class TotalFloatCPMCalculator:
         except nx.NetworkXUnfeasible:
             self.logger.error("Unable to calculate critical path due to remaining cycles.")
             return []
+
     def break_cycles(self, cycles):
         for cycle in cycles:
-            # Find the edge with the largest lag to break
             max_lag = pd.Timedelta(seconds=0)
             edge_to_remove = None
             for i in range(len(cycle)):
@@ -585,6 +586,7 @@ class TotalFloatCPMCalculator:
 
             if edge_to_remove:
                 self.graph.remove_edge(*edge_to_remove)
+                self.removed_cycle_tasks.append(edge_to_remove)
                 self.logger.warning(f"Removed edge {edge_to_remove} to break cycle.")
             else:
                 self.logger.error(f"Unable to break cycle: {cycle}")
@@ -595,7 +597,6 @@ class TotalFloatCPMCalculator:
                 list(nx.topological_sort(self.graph))
                 break  # If topological sort succeeds, the graph is acyclic
             except nx.NetworkXUnfeasible:
-                # Find a cycle
                 try:
                     cycle = nx.find_cycle(self.graph)
                     if not cycle:
@@ -603,7 +604,6 @@ class TotalFloatCPMCalculator:
                 except nx.NetworkXNoCycle:
                     break  # No cycle found
 
-                # Find the edge with the smallest weight (duration) to remove
                 min_weight = float('inf')
                 edge_to_remove = None
                 for u, v in cycle:
@@ -614,6 +614,7 @@ class TotalFloatCPMCalculator:
 
                 if edge_to_remove:
                     self.graph.remove_edge(*edge_to_remove)
+                    self.removed_cycle_tasks.append(edge_to_remove)
                     self.logger.warning(f"Removed edge {edge_to_remove} to break cycle in fallback method.")
                 else:
                     self.logger.error("Unable to find an edge to remove in fallback method.")
@@ -622,6 +623,17 @@ class TotalFloatCPMCalculator:
         # After breaking cycles, check if the graph is acyclic
         if list(nx.simple_cycles(self.graph)):
             self.logger.error("Unable to break all cycles. The graph still contains cycles.")
+
+    def get_removed_cycle_tasks(self):
+        """
+        Returns a list of tasks removed to break cycles.
+
+        Returns:
+        list: A list of tuples, where each tuple contains the (predecessor_task_id, successor_task_id) of the removed edge.
+        """
+        return self.removed_cycle_tasks
+
+
     def update_task_df(self):
         '''
         This method updates the actual dataframe, prior to this, nothing is changed in the XER class
