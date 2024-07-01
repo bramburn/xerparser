@@ -19,22 +19,70 @@ class WindowXER(NamedTuple):
 
 
 class WindowAnalyzer:
-    def __init__(self, xer: Xer, start_window_folder_path: str, end_window_folder_path: str):
+    def __init__(self, xer: Xer, report_folder_path: str):
         """
         Initializes a new instance of the WindowAnalyzer class.
 
         Args:
             xer (Xer): The Xer object representing the original XER file.
-            start_window_folder_path (str): The path to the folder where the start window XER files will be saved.
-            end_window_folder_path (str): The path to the folder where the end window XER files will be saved.
+            report_folder_path (str): The path to the folder where the start window XER files will be saved.
+
 
         Returns:
             None
         """
         self.xer = xer
-        self.start_window_xer_folder_path = start_window_folder_path
-        self.end_window_xer_folder_path = end_window_folder_path
+        self.report_xer_folder_path = report_folder_path
         self.xer_generator = XerFileGenerator(self.xer)
+        self.monitored_tasks = None
+
+    def set_monitored_tasks(self, task_codes: List[str]):
+        self.monitored_tasks = task_codes
+
+    def generate_monitored_tasks_report(self, mdFile: MdUtils, start_window: WindowXER, end_window: WindowXER):
+        if not self.monitored_tasks:
+            return
+
+        mdFile.new_header(level=1, title="Monitored Tasks Report")
+
+        table_headers = ["Task Code", "Task Name", "Planned Start (Start)", "Planned Finish (Start)",
+                         "Planned Start (End)", "Planned Finish (End)", "Finish Date Difference"]
+        table_data = table_headers.copy()
+
+        for task_code in self.monitored_tasks:
+            start_task = start_window.xer.task_df[start_window.xer.task_df['task_code'] == task_code]
+            end_task = end_window.xer.task_df[end_window.xer.task_df['task_code'] == task_code]
+
+            if start_task.empty or end_task.empty:
+                continue
+
+            start_task = start_task.iloc[0]
+            end_task = end_task.iloc[0]
+
+            start_planned_start = self.format_date(start_task['target_start_date']) or "N/A"
+            start_planned_finish = self.format_date(start_task['target_end_date']) or "N/A"
+            end_planned_start = self.format_date(end_task['target_start_date']) or "N/A"
+            end_planned_finish = self.format_date(end_task['target_end_date']) or "N/A"
+
+            if start_planned_finish != "N/A" and end_planned_finish != "N/A":
+                finish_diff = (pd.to_datetime(end_task['target_end_date']) -
+                               pd.to_datetime(start_task['target_end_date'])).days
+                finish_diff = f"{finish_diff} days"
+            else:
+                finish_diff = "N/A"
+
+            table_data.extend([
+                task_code,
+                start_task['task_name'],
+                start_planned_start,
+                start_planned_finish,
+                end_planned_start,
+                end_planned_finish,
+                finish_diff
+            ])
+
+        num_rows = len(table_data) // 7  # 7 is the number of columns
+        mdFile.new_table(columns=7, rows=num_rows, text=table_data, text_align='left')
 
     def process_window(self, date: pd.Timestamp, is_end_window: bool) -> WindowXER:
         """
@@ -55,7 +103,7 @@ class WindowAnalyzer:
         critical_path = calculator.calculate_critical_path()
         calculator.update_task_df()
 
-        folder_path = self.end_window_xer_folder_path if is_end_window else self.start_window_xer_folder_path
+        folder_path = self.report_xer_folder_path if is_end_window else self.report_xer_folder_path
         window_type = "end" if is_end_window else "start"
         file_name = os.path.join(folder_path, f"{date.strftime('%Y-%m-%d')}_{window_type}_window.xer")
         self.xer_generator.build_xer_file(window_xer, file_name)
@@ -79,12 +127,20 @@ class WindowAnalyzer:
 
     def generate_markdown_report(self, start_window: WindowXER, end_window: WindowXER, start_date: pd.Timestamp,
                                  end_date: pd.Timestamp):
+        file_name = os.path.join(self.report_xer_folder_path,
+                                 f"window_analysis_report_{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}")
+
         mdFile = MdUtils(
-            file_name=f"window_analysis_report_{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}",
+            file_name=file_name,
             title="Window Analysis Report")
 
         self.add_table_of_contents(mdFile)
         self.add_window_period(mdFile, start_date, end_date)
+        # Add the monitored tasks report right after the window period
+        if self.monitored_tasks:
+            self.generate_monitored_tasks_report(mdFile, start_window, end_window)
+
+
         self.add_critical_path_comparison(mdFile, start_window, end_window)
         self.add_activities_in_period(mdFile, start_window, end_window, start_date, end_date)
         # Add this new line
@@ -249,7 +305,7 @@ class WindowAnalyzer:
                            "Actual Duration"]
         for _, task in completed_activities.iterrows():
             planned_duration = (
-                        pd.to_datetime(task['target_end_date']) - pd.to_datetime(task['target_start_date'])).days
+                    pd.to_datetime(task['target_end_date']) - pd.to_datetime(task['target_start_date'])).days
             actual_duration = (pd.to_datetime(task['act_end_date']) - pd.to_datetime(task['act_start_date'])).days
 
             completed_table.extend([
@@ -335,6 +391,7 @@ class WindowAnalyzer:
         if not rapid_activities.empty:
             avg_completion_percentage = rapid_activities['completion_percentage'].mean().round(2)
             mdFile.new_paragraph(f"Average completion percentage: {avg_completion_percentage}%")
+
     def get_activity_row(self, task_code: str, start_tasks: pd.DataFrame, end_tasks: pd.DataFrame) -> list:
         start_task = start_tasks[start_tasks['task_code'] == task_code]
         end_task = end_tasks[end_tasks['task_code'] == task_code]
@@ -382,7 +439,7 @@ class WindowAnalyzer:
 
     def generate_window_data_and_progress(self, start_date: Union[str, pd.Timestamp],
                                           end_date: Union[str, pd.Timestamp]) -> Tuple[WindowXER, WindowXER]:
-        if self.start_window_xer_folder_path is None or self.end_window_xer_folder_path is None:
+        if self.report_xer_folder_path is None or self.report_xer_folder_path is None:
             logging.error("Both start and end window XER file paths must be set.")
             raise ValueError("Both start and end window XER file paths must be set.")
 

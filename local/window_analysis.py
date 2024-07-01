@@ -10,9 +10,33 @@ date_format = "%Y-%m-%d %H:%M"
 asbuilt_file = r"asbuilt.xer"
 
 # define the start and end dates for the filter
-start_date = '2022-11-12'  # example start date
-end_date = '2022-11-30'  # example end date
+start_date = '2023-01-01'  # example start date
+end_date = '2023-01-31'  # example end date
 split_date = end_date
+monitored_activities = ["HRPMMM1001",
+                        "HRPMMM1002",
+                        "HRPMMM1003",
+                        "HRPMMM1005",
+                        "HRPMMM1008",
+                        "HRPMMM1010",
+                        "HRPMMM1004",
+                        "HRPMMM1007",
+                        "HRPMMM1013",
+                        "HRPMMM1012",
+                        "HRPMMM1006",
+                        "HRPMMM1009",
+                        "HRPMMM1011",
+                        "HRPMMM1014",
+                        "HRVHMM1000",
+                        "HRPMMM405",
+                        "HRPMMM0001",
+                        "HRPMMM395",
+                        "HRPMMM0005",
+                        "HRPMMM0015",
+                        "HRPMMM0030",
+                        "HRPMMM0035",
+                        "HRPMMM6730",
+                        "HRPMMM605" ]
 
 
 def main():
@@ -21,10 +45,10 @@ def main():
         file_contents = f.read()
     xer = Xer(file_contents)
 
-    start_folder_path = os.path.join(os.getcwd(), "reports")
-    end_folder_path = os.path.join(os.getcwd(), "reports")
+    report_folder_path = os.path.join(os.getcwd(), "reports")
 
-    w = WindowAnalyzer(xer, start_folder_path, end_folder_path)
+    w = WindowAnalyzer(xer, report_folder_path)
+    w.set_monitored_tasks(monitored_activities)
     w.generate_window_data_and_progress(start_date, end_date)
 
 
