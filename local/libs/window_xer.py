@@ -113,6 +113,9 @@ class WindowAnalyzer:
         start_critical_path = start_window.critical_path
         end_critical_path = end_window.critical_path
 
+        # Convert last_recalc_date to Timestamp
+        start_window_date = pd.to_datetime(start_window.xer.project_df['last_recalc_date'].iloc[0])
+
         # Find the index where the critical paths start to differ
         divergence_index = 0
         for i, (start_task, end_task) in enumerate(zip(start_critical_path, end_critical_path)):
@@ -135,6 +138,12 @@ class WindowAnalyzer:
                 0] if task_id in end_critical_set else None
 
             task: pd.Series = end_task if end_task is not None else start_task
+
+            # Check if the task is older than start_window
+            task_start_date = pd.to_datetime(task['act_start_date'] or task['target_start_date'])
+            if task_start_date >= start_window_date:
+                continue
+
             task_code = task['task_code']
             task_name = task['task_name']
 
@@ -147,7 +156,7 @@ class WindowAnalyzer:
 
             table_data.extend([task_code, task_name, start_date, end_date, critical_1, critical_2])
 
-        num_rows = len(all_critical_tasks) + 1
+        num_rows = len(table_data) // 6  # 6 is the number of columns
         md_file_utils.new_table(columns=6, rows=num_rows, text=table_data, text_align='left')
 
         md_file_utils.new_paragraph("*Critical 1: Critical path status at the start of the window")
@@ -165,25 +174,35 @@ class WindowAnalyzer:
 
         for task_id in removed_tasks:
             task = start_window.xer.task_df[start_window.xer.task_df['task_id'] == task_id].iloc[0]
-            summary_data.extend(["Removed", task['task_code'], task['task_name']])
+            task_start_date = pd.to_datetime(task['act_start_date'] or task['target_start_date'])
+            if task_start_date < start_window_date:
+                summary_data.extend(["Removed", task['task_code'], task['task_name']])
 
         for task_id in added_tasks:
             task = end_window.xer.task_df[end_window.xer.task_df['task_id'] == task_id].iloc[0]
-            summary_data.extend(["Added", task['task_code'], task['task_name']])
+            task_start_date = pd.to_datetime(task['act_start_date'] or task['target_start_date'])
+            if task_start_date < start_window_date:
+                summary_data.extend(["Added", task['task_code'], task['task_name']])
 
-        num_rows = len(removed_tasks) + len(added_tasks) + 1
+        num_rows = len(summary_data) // 3  # 3 is the number of columns
         md_file_utils.new_table(columns=3, rows=num_rows, text=summary_data, text_align='left')
 
         # New critical path
         md_file_utils.new_header(level=2, title="New Critical Path")
-        new_critical_path = end_critical_path[divergence_index:]
+        new_critical_path = [task for task in end_critical_path[divergence_index:]
+                             if pd.to_datetime(
+                end_window.xer.task_df[end_window.xer.task_df['task_id'] == task].iloc[0]['act_start_date'] or
+                end_window.xer.task_df[end_window.xer.task_df['task_id'] == task].iloc[0]['target_start_date'])
+                             < start_window_date]
         new_critical_path_text = " -> ".join(
             [end_window.xer.task_df[end_window.xer.task_df['task_id'] == task_id].iloc[0]['task_code'] for task_id in
              new_critical_path])
-        md_file_utils.new_paragraph(f"New critical path from the point of change: {new_critical_path_text}")
+        md_file_utils.new_paragraph(
+            f"New critical path from the point of change (only tasks older than start window): {new_critical_path_text}")
 
     def add_activities_in_period(self, mdFile: MdUtils, start_window: WindowXER, end_window: WindowXER,
                                  start_date: pd.Timestamp, end_date: pd.Timestamp):
+
         mdFile.new_header(level=1, title="Activities in the Period")
 
         # Original table (unchanged)
@@ -226,16 +245,23 @@ class WindowAnalyzer:
             (end_window.xer.task_df['act_end_date'] <= end_date)
             ]
 
-        completed_table = ["Task Code", "Task Name", "Actual Start", "Actual End"]
+        completed_table = ["Task Code", "Task Name", "Actual Start", "Actual End", "Planned Duration",
+                           "Actual Duration"]
         for _, task in completed_activities.iterrows():
+            planned_duration = (
+                        pd.to_datetime(task['target_end_date']) - pd.to_datetime(task['target_start_date'])).days
+            actual_duration = (pd.to_datetime(task['act_end_date']) - pd.to_datetime(task['act_start_date'])).days
+
             completed_table.extend([
                 task['task_code'],
                 task['task_name'],
                 self.format_date(task['act_start_date']) or "N/A",
-                self.format_date(task['act_end_date']) or "N/A"
+                self.format_date(task['act_end_date']) or "N/A",
+                f"{planned_duration} days",
+                f"{actual_duration} days"
             ])
 
-        mdFile.new_table(columns=4, rows=len(completed_activities) + 1, text=completed_table, text_align='left')
+        mdFile.new_table(columns=6, rows=len(completed_activities) + 1, text=completed_table, text_align='left')
 
         # New table: Activities Started in the Period
         mdFile.new_header(level=2, title="Activities Started in the Period")
@@ -262,7 +288,7 @@ class WindowAnalyzer:
         completed_activities = end_window.xer.task_df[
             (pd.notnull(end_window.xer.task_df['act_start_date'])) &
             (pd.notnull(end_window.xer.task_df['act_end_date']))
-            ]
+            ].copy()  # Create a copy to avoid SettingWithCopyWarning
 
         # Calculate planned and actual durations
         completed_activities['planned_duration'] = (
@@ -278,7 +304,7 @@ class WindowAnalyzer:
         rapid_activities = completed_activities[
             (completed_activities['planned_duration'] >= 1) &
             (completed_activities['actual_duration'] <= 0.7 * completed_activities['planned_duration'])
-            ]
+            ].copy()  # Create another copy for the filtered dataset
 
         # Calculate completion percentage
         rapid_activities['completion_percentage'] = (
