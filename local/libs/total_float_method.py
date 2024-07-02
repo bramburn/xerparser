@@ -270,7 +270,12 @@ class TotalFloatCPMCalculator:
                     # For WBS summary tasks, early finish is the max of its subtasks
                     subtasks = self.graph.nodes[node]['subtasks']
                     if subtasks:
-                        self.early_finish[node] = max(self.early_finish[subtask] for subtask in subtasks)
+                        subtask_finishes = [self.early_finish[subtask] for subtask in subtasks if
+                                            self.early_finish[subtask] is not None]
+                        if subtask_finishes:
+                            self.early_finish[node] = max(subtask_finishes)
+                        else:
+                            self.early_finish[node] = self.early_start[node]
                     else:
                         self.early_finish[node] = self.early_start[node]
                 else:
@@ -382,16 +387,24 @@ class TotalFloatCPMCalculator:
                     # For WBS summary tasks, late start is the min of its subtasks
                     subtasks = self.graph.nodes[node]['subtasks']
                     if subtasks:
-                        self.late_start[node] = min(self.late_start[subtask] for subtask in subtasks)
+                        subtask_starts = [self.late_start[subtask] for subtask in subtasks if
+                                          self.late_start[subtask] is not None]
+                        if subtask_starts:
+                            self.late_start[node] = min(subtask_starts)
+                        else:
+                            self.late_start[node] = self.late_finish[node]
                     else:
                         self.late_start[node] = self.late_finish[node]
                 else:
-                    calculated_start = self.working_day_calculator.add_working_days(
-                        self.late_finish[node],
-                        -self.graph.nodes[node]['duration'],
-                        self.graph.nodes[node]['calendar_id']
-                    )
-                    self.late_start[node] = pd.Timestamp(calculated_start)
+                    if self.late_finish[node] is not None:
+                        calculated_start = self.working_day_calculator.add_working_days(
+                            self.late_finish[node],
+                            -self.graph.nodes[node]['duration'],
+                            self.graph.nodes[node]['calendar_id']
+                        )
+                        self.late_start[node] = pd.Timestamp(calculated_start)
+                    else:
+                        self.late_start[node] = None
 
             # Ensure late dates are not earlier than data date for future tasks
             if pd.isnull(act_start) or act_start > self.data_date:
