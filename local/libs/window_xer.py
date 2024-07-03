@@ -139,7 +139,7 @@ class WindowAnalyzer:
         # Add the monitored tasks report right after the window period
         if self.monitored_tasks:
             self.generate_monitored_tasks_report(mdFile, start_window, end_window)
-
+            self.generate_monitored_tasks_impact_report(mdFile, start_window, end_window)
 
         self.add_critical_path_comparison(mdFile, start_window, end_window)
         self.add_activities_in_period(mdFile, start_window, end_window, start_date, end_date)
@@ -255,6 +255,89 @@ class WindowAnalyzer:
              new_critical_path])
         md_file_utils.new_paragraph(
             f"New critical path from the point of change (only tasks older than start window): {new_critical_path_text}")
+
+    def calculate_duration(self, start_date: Union[str, pd.Timestamp], end_date: Union[str, pd.Timestamp]) -> int:
+        start = pd.to_datetime(start_date)
+        end = pd.to_datetime(end_date)
+        return (end - start).days
+
+    def format_date(self, date: Union[str, pd.Timestamp]) -> str:
+        return pd.to_datetime(date).strftime('%Y-%m-%d')
+
+    def generate_monitored_tasks_impact_report(self, mdFile: MdUtils, start_window: WindowXER, end_window: WindowXER):
+        if not self.monitored_tasks:
+            return
+
+        mdFile.new_header(level=1, title="Monitored Tasks Impact Report")
+
+        table_headers = ["Impacting Task Code", "Impacting Task Name", "Planned Duration", "Actual Duration",
+                         "Delay", "Affected Monitored Task", "Monitored Task Date Change"]
+        table_data = table_headers.copy()
+
+        for task_code in self.monitored_tasks:
+            start_task = start_window.xer.task_df[start_window.xer.task_df['task_code'] == task_code].iloc[0]
+            end_task = end_window.xer.task_df[end_window.xer.task_df['task_code'] == task_code].iloc[0]
+
+            start_date = pd.to_datetime(start_task['target_end_date'])
+            end_date = pd.to_datetime(end_task['target_end_date'])
+
+            if start_date != end_date:
+                # Find impacting tasks
+                impacting_tasks = self.find_impacting_tasks(start_window, end_window, task_code)
+
+                for imp_task in impacting_tasks:
+                    imp_start = start_window.xer.task_df[start_window.xer.task_df['task_id'] == imp_task].iloc[0]
+                    imp_end = end_window.xer.task_df[end_window.xer.task_df['task_id'] == imp_task].iloc[0]
+
+                    planned_duration = self.calculate_duration(imp_start['target_start_date'],
+                                                               imp_start['target_end_date'])
+                    actual_duration = self.calculate_duration(
+                        imp_end['act_start_date'] or imp_end['target_start_date'],
+                        imp_end['act_end_date'] or imp_end['target_end_date']
+                    )
+                    delay = actual_duration - planned_duration
+
+                    table_data.extend([
+                        imp_end['task_code'],
+                        imp_end['task_name'],
+                        f"{planned_duration} days",
+                        f"{actual_duration} days",
+                        f"{delay} days",
+                        task_code,
+                        f"{self.format_date(start_date)} -> {self.format_date(end_date)}"
+                    ])
+
+        num_rows = len(table_data) // 7  # 7 is the number of columns
+        mdFile.new_table(columns=7, rows=num_rows, text=table_data, text_align='left')
+
+    def find_impacting_tasks(self, start_window: WindowXER, end_window: WindowXER, monitored_task_code: str) -> List[
+        str]:
+        start_task = start_window.xer.task_df[start_window.xer.task_df['task_code'] == monitored_task_code].iloc[0]
+        end_task = end_window.xer.task_df[end_window.xer.task_df['task_code'] == monitored_task_code].iloc[0]
+
+        start_predecessors = set(
+            start_window.xer.taskpred_df[start_window.xer.taskpred_df['task_id'] == start_task['task_id']][
+                'pred_task_id'])
+        end_predecessors = set(
+            end_window.xer.taskpred_df[end_window.xer.taskpred_df['task_id'] == end_task['task_id']]['pred_task_id'])
+
+        all_predecessors = start_predecessors.union(end_predecessors)
+
+        impacting_tasks = []
+        for pred in all_predecessors:
+            start_pred = start_window.xer.task_df[start_window.xer.task_df['task_id'] == pred].iloc[0]
+            end_pred = end_window.xer.task_df[end_window.xer.task_df['task_id'] == pred].iloc[0]
+
+            start_duration = self.calculate_duration(start_pred['target_start_date'], start_pred['target_end_date'])
+            end_duration = self.calculate_duration(
+                end_pred['act_start_date'] or end_pred['target_start_date'],
+                end_pred['act_end_date'] or end_pred['target_end_date']
+            )
+
+            if end_duration > start_duration:
+                impacting_tasks.append(pred)
+
+        return impacting_tasks
 
     def add_activities_in_period(self, mdFile: MdUtils, start_window: WindowXER, end_window: WindowXER,
                                  start_date: pd.Timestamp, end_date: pd.Timestamp):

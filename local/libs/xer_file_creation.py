@@ -46,12 +46,24 @@ class XerFileGenerator:
                 axis=1
             )
 
+            # Handle tasks completed after progress_to_date
+            completed_after_progress_mask = (new_xer.task_df['act_end_date'] > progress_to_date) & \
+                                            (new_xer.task_df['act_end_date'].notnull())
+            new_xer.task_df.loc[completed_after_progress_mask, 'act_end_date'] = pd.NaT
+
             # Reset actual dates for tasks with zero progress
             zero_progress_mask = new_xer.task_df['progress'] == 0
             new_xer.task_df.loc[zero_progress_mask, 'act_start_date'] = pd.NaT
             new_xer.task_df.loc[zero_progress_mask, 'act_end_date'] = pd.NaT
             new_xer.task_df.loc[zero_progress_mask, 'remain_drtn_hr_cnt'] = new_xer.task_df.loc[
                 zero_progress_mask, 'target_drtn_hr_cnt']
+
+            # Handle tasks that started after progress_to_date
+            started_after_progress_mask = new_xer.task_df['act_start_date'] > progress_to_date
+            new_xer.task_df.loc[started_after_progress_mask, 'act_start_date'] = pd.NaT
+            new_xer.task_df.loc[started_after_progress_mask, 'act_end_date'] = pd.NaT
+            new_xer.task_df.loc[started_after_progress_mask, 'remain_drtn_hr_cnt'] = new_xer.task_df.loc[
+                started_after_progress_mask, 'target_drtn_hr_cnt']
 
         # Update last_recalc_date
         if new_xer.project_df is not None and 'last_recalc_date' in new_xer.project_df.columns:
@@ -116,31 +128,51 @@ class ProgressCalculator:
     def calculate_progress(row, progress_to_date):
         if pd.isnull(row['act_start_date']):
             return 0.0
-        elif pd.notnull(row['act_end_date']) and row['act_end_date'] <= progress_to_date:
-            return 1.0
+        elif pd.notnull(row['act_end_date']):
+            if row['act_end_date'] <= progress_to_date:
+                return 1.0
+            else:
+                # Task is completed now but wasn't at progress_to_date
+                return ProgressCalculator.calculate_partial_progress(row, progress_to_date)
         elif row['act_start_date'] > progress_to_date:
             return 0.0
         else:
-            try:
-                planned_duration = pd.Timedelta(hours=float(row['target_drtn_hr_cnt']))
-                actual_duration = progress_to_date - row['act_start_date']
-                return min(actual_duration / planned_duration, 1.0)
-            except (ValueError, TypeError):
-                print(f"Warning: Invalid target_drtn_hr_cnt value for task {row['task_id']}: {row['target_drtn_hr_cnt']}")
-                return 0.0
+            return ProgressCalculator.calculate_partial_progress(row, progress_to_date)
+
+    @staticmethod
+    def calculate_partial_progress(row, progress_to_date):
+        try:
+            planned_duration = pd.Timedelta(hours=float(row['target_drtn_hr_cnt']))
+            if planned_duration == pd.Timedelta(0):
+                return 1.0  # If planned duration is 0, consider the task as complete
+            actual_duration = progress_to_date - row['act_start_date']
+            return min(actual_duration / planned_duration, 1.0)
+        except (ValueError, TypeError):
+            print(f"Warning: Invalid target_drtn_hr_cnt value for task {row['task_id']}: {row['target_drtn_hr_cnt']}")
+            return 0.0
 
     @staticmethod
     def calculate_remaining_duration(row, progress_to_date):
         if pd.isnull(row['act_start_date']):
             return row['target_drtn_hr_cnt']
-        elif pd.notnull(row['act_end_date']) and row['act_end_date'] <= progress_to_date:
-            return 0
+        elif pd.notnull(row['act_end_date']):
+            if row['act_end_date'] <= progress_to_date:
+                return 0
+            else:
+                # Task is completed now but wasn't at progress_to_date
+                return ProgressCalculator.calculate_partial_remaining_duration(row, progress_to_date)
         else:
-            try:
-                planned_duration = pd.Timedelta(hours=float(row['target_drtn_hr_cnt']))
-                actual_duration = progress_to_date - row['act_start_date']
-                remaining_duration = max(planned_duration - actual_duration, pd.Timedelta(0))
-                return remaining_duration.total_seconds() / 3600  # Convert to hours
-            except (ValueError, TypeError):
-                print(f"Warning: Invalid target_drtn_hr_cnt value for task {row['task_id']}: {row['target_drtn_hr_cnt']}")
-                return row['target_drtn_hr_cnt']
+            return ProgressCalculator.calculate_partial_remaining_duration(row, progress_to_date)
+
+    @staticmethod
+    def calculate_partial_remaining_duration(row, progress_to_date):
+        try:
+            planned_duration = pd.Timedelta(hours=float(row['target_drtn_hr_cnt']))
+            if planned_duration == pd.Timedelta(0):
+                return 0  # If planned duration is 0, remaining duration is also 0
+            actual_duration = progress_to_date - row['act_start_date']
+            remaining_duration = max(planned_duration - actual_duration, pd.Timedelta(0))
+            return remaining_duration.total_seconds() / 3600  # Convert to hours
+        except (ValueError, TypeError):
+            print(f"Warning: Invalid target_drtn_hr_cnt value for task {row['task_id']}: {row['target_drtn_hr_cnt']}")
+            return row['target_drtn_hr_cnt']
