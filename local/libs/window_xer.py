@@ -203,9 +203,10 @@ class WindowAnalyzer:
             task_code = task['task_code']
             task_name = task['task_name']
 
-            start_date = self.format_date(task['act_start_date'], 'A') or self.format_date(
+            start_date = self.format_date(task['act_start_date'], suffix='A') or self.format_date(
                 task['target_start_date']) or "N/A"
-            end_date = self.format_date(task['act_end_date'], 'A') or self.format_date(task['target_end_date']) or "N/A"
+            end_date = self.format_date(task['act_end_date'], suffix='A') or self.format_date(
+                task['target_end_date']) or "N/A"
 
             critical_1 = "True" if task_id in start_critical_set else "False"
             critical_2 = "True" if task_id in end_critical_set else "False"
@@ -261,9 +262,6 @@ class WindowAnalyzer:
         end = pd.to_datetime(end_date)
         return (end - start).days
 
-    def format_date(self, date: Union[str, pd.Timestamp]) -> str:
-        return pd.to_datetime(date).strftime('%Y-%m-%d')
-
     def generate_monitored_tasks_impact_report(self, mdFile: MdUtils, start_window: WindowXER, end_window: WindowXER):
         if not self.monitored_tasks:
             return
@@ -278,8 +276,8 @@ class WindowAnalyzer:
             start_task = start_window.xer.task_df[start_window.xer.task_df['task_code'] == task_code].iloc[0]
             end_task = end_window.xer.task_df[end_window.xer.task_df['task_code'] == task_code].iloc[0]
 
-            start_date = pd.to_datetime(start_task['target_end_date'])
-            end_date = pd.to_datetime(end_task['target_end_date'])
+            start_date = pd.to_datetime(start_task['act_end_date'] or start_task['target_end_date'])
+            end_date = pd.to_datetime(end_task['act_end_date'] or end_task['target_end_date'])
 
             if start_date != end_date:
                 # Find impacting tasks
@@ -289,13 +287,20 @@ class WindowAnalyzer:
                     imp_start = start_window.xer.task_df[start_window.xer.task_df['task_id'] == imp_task].iloc[0]
                     imp_end = end_window.xer.task_df[end_window.xer.task_df['task_id'] == imp_task].iloc[0]
 
-                    planned_duration = self.calculate_duration(imp_start['target_start_date'],
-                                                               imp_start['target_end_date'])
+                    planned_duration = self.calculate_duration(
+                        imp_start['target_start_date'],
+                        imp_start['target_end_date']
+                    )
                     actual_duration = self.calculate_duration(
                         imp_end['act_start_date'] or imp_end['target_start_date'],
                         imp_end['act_end_date'] or imp_end['target_end_date']
                     )
                     delay = actual_duration - planned_duration
+
+                    start_date_str = self.format_date(start_task['act_end_date'], suffix='A') or self.format_date(
+                        start_task['target_end_date'])
+                    end_date_str = self.format_date(end_task['act_end_date'], suffix='A') or self.format_date(
+                        end_task['target_end_date'])
 
                     table_data.extend([
                         imp_end['task_code'],
@@ -304,12 +309,11 @@ class WindowAnalyzer:
                         f"{actual_duration} days",
                         f"{delay} days",
                         task_code,
-                        f"{self.format_date(start_date)} -> {self.format_date(end_date)}"
+                        f"{start_date_str} -> {end_date_str}"
                     ])
 
         num_rows = len(table_data) // 7  # 7 is the number of columns
         mdFile.new_table(columns=7, rows=num_rows, text=table_data, text_align='left')
-
     def find_impacting_tasks(self, start_window: WindowXER, end_window: WindowXER, monitored_task_code: str) -> List[
         str]:
         start_task = start_window.xer.task_df[start_window.xer.task_df['task_code'] == monitored_task_code].iloc[0]
@@ -402,23 +406,43 @@ class WindowAnalyzer:
 
         mdFile.new_table(columns=6, rows=len(completed_activities) + 1, text=completed_table, text_align='left')
 
-        # New table: Activities Started in the Period
-        mdFile.new_header(level=2, title="Activities Started in the Period")
+        # Updated table: Activities Started in the Period (but not completed)
+        mdFile.new_header(level=2, title="Activities Started in the Period (In Progress)")
         started_activities = end_window.xer.task_df[
             (end_window.xer.task_df['act_start_date'] >= start_date) &
-            (end_window.xer.task_df['act_start_date'] <= end_date)
+            (end_window.xer.task_df['act_start_date'] <= end_date) &
+            (pd.isnull(end_window.xer.task_df['act_end_date']) | (end_window.xer.task_df['act_end_date'] > end_date))
             ]
 
-        started_table = ["Task Code", "Task Name", "Actual Start", "Planned End"]
+        started_table = ["Task Code", "Task Name", "Actual Start", "Planned End", "Planned % Complete",
+                         "Actual % Complete"]
         for _, task in started_activities.iterrows():
+            planned_duration = (
+                        pd.to_datetime(task['target_end_date']) - pd.to_datetime(task['target_start_date'])).days
+            actual_duration_to_date = (end_date - pd.to_datetime(task['act_start_date'])).days
+            temp_actual_duration = task.get('temp_actual_duration', actual_duration_to_date)
+
+            planned_progress = min(actual_duration_to_date / planned_duration, 1) * 100 if planned_duration > 0 else 0
+            actual_progress = min(temp_actual_duration / planned_duration, 1) * 100 if planned_duration > 0 else 0
+
             started_table.extend([
                 task['task_code'],
                 task['task_name'],
                 self.format_date(task['act_start_date']) or "N/A",
-                self.format_date(task['target_end_date']) or "N/A"
+                self.format_date(task['target_end_date']) or "N/A",
+                f"{planned_progress:.2f}%",
+                f"{actual_progress:.2f}%"
             ])
 
-        mdFile.new_table(columns=4, rows=len(started_activities) + 1, text=started_table, text_align='left')
+        mdFile.new_table(columns=6, rows=len(started_activities) + 1, text=started_table, text_align='left')
+
+        # Add explanation for the percentages
+        mdFile.new_paragraph(
+            "* Planned % Complete: Based on the planned duration and the time elapsed since the actual start date up to the end of the analysis window.")
+        mdFile.new_paragraph(
+            "* Actual % Complete: Based on the actual progress of the task as of the end date of the analysis window.")
+
+
 
     def generate_rapid_completion_report(self, mdFile: MdUtils, end_window: WindowXER):
         mdFile.new_header(level=1, title="Rapidly Completed Activities Report")

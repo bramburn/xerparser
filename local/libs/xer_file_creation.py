@@ -31,6 +31,13 @@ class XerFileGenerator:
 
         # Update task progress
         if new_xer.task_df is not None:
+            # Add temporary column for actual duration
+            new_xer.task_df['temp_actual_duration'] = (
+                    pd.to_datetime(new_xer.task_df['act_end_date']) -
+                    pd.to_datetime(new_xer.task_df['act_start_date'])
+            ).dt.days
+
+
             # Convert target_drtn_hr_cnt to numeric
             new_xer.task_df['target_drtn_hr_cnt'] = pd.to_numeric(new_xer.task_df['target_drtn_hr_cnt'],
                                                                   errors='coerce')
@@ -111,6 +118,10 @@ class XerFileGenerator:
         self.build_xer_file(self.xer, new_filename)
 
     def build_xer_file(self, xer: Xer, output_file: str) -> str:
+        # Remove temporary column before building XER file
+        if 'temp_actual_duration' in xer.task_df.columns:
+            xer.task_df = xer.task_df.drop(columns=['temp_actual_duration'])
+
         """Generate and save the XER file."""
         # Ensure the output_file has a .xer extension
         if not output_file.lower().endswith('.xer'):
