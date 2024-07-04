@@ -201,18 +201,18 @@ class WindowAnalyzer:
         divergence_index = 0
         for i, (start_task, end_task) in enumerate(zip(start_critical_path, end_critical_path)):
             if start_task != end_task:
-                divergence_index = max(0, i - 1)  # Include one task before the change
+                divergence_index = i
                 break
 
         # Create sets for efficient lookup
         start_critical_set = set(start_critical_path[divergence_index:])
         end_critical_set = set(end_critical_path[divergence_index:])
-        all_critical_tasks = start_critical_set.union(end_critical_set)
+        changed_critical_tasks = start_critical_set.symmetric_difference(end_critical_set)
 
         table_headers = ["Task Code", "Task Name", "Start", "End", "Critical 1*", "Critical 2**"]
         table_data = table_headers.copy()
 
-        for task_id in all_critical_tasks:
+        for task_id in changed_critical_tasks:
             start_task = start_window.xer.task_df[start_window.xer.task_df['task_id'] == task_id].iloc[
                 0] if task_id in start_critical_set else None
             end_task = end_window.xer.task_df[end_window.xer.task_df['task_id'] == task_id].iloc[
@@ -281,6 +281,7 @@ class WindowAnalyzer:
              new_critical_path])
         md_file_utils.new_paragraph(
             f"New critical path from the point of change (only tasks older than start window): {new_critical_path_text}")
+
 
     def calculate_duration(self, start_date: Union[str, pd.Timestamp], end_date: Union[str, pd.Timestamp]) -> int:
         start = pd.to_datetime(start_date)
@@ -467,8 +468,6 @@ class WindowAnalyzer:
         mdFile.new_paragraph(
             "* Actual % Complete: Based on the actual progress of the task as of the end date of the analysis window.")
 
-
-
     def generate_rapid_completion_report(self, mdFile: MdUtils, end_window: WindowXER):
         mdFile.new_header(level=1, title="Rapidly Completed Activities Report")
 
@@ -478,15 +477,20 @@ class WindowAnalyzer:
             (pd.notnull(end_window.xer.task_df['act_end_date']))
             ].copy()  # Create a copy to avoid SettingWithCopyWarning
 
-        # Calculate planned and actual durations
+        # Calculate planned durations
         completed_activities['planned_duration'] = (
                 pd.to_datetime(completed_activities['target_end_date']) -
                 pd.to_datetime(completed_activities['target_start_date'])
         ).dt.days
-        completed_activities['actual_duration'] = (
-                pd.to_datetime(completed_activities['act_end_date']) -
-                pd.to_datetime(completed_activities['act_start_date'])
-        ).dt.days
+
+        # Use temp_actual_duration if available, otherwise calculate it
+        if 'temp_actual_duration' in completed_activities.columns:
+            completed_activities['actual_duration'] = completed_activities['temp_actual_duration']
+        else:
+            completed_activities['actual_duration'] = (
+                    pd.to_datetime(completed_activities['act_end_date']) -
+                    pd.to_datetime(completed_activities['act_start_date'])
+            ).dt.days
 
         # Filter activities with planned duration >= 1 day and completed in 70% or less time
         rapid_activities = completed_activities[
@@ -524,6 +528,8 @@ class WindowAnalyzer:
             avg_completion_percentage = rapid_activities['completion_percentage'].mean().round(2)
             mdFile.new_paragraph(f"Average completion percentage: {avg_completion_percentage}%")
 
+        mdFile.new_paragraph(
+            "Note: Actual Duration is based on the progress as of the end date of the analysis window.")
     def get_activity_row(self, task_code: str, start_tasks: pd.DataFrame, end_tasks: pd.DataFrame) -> list:
         start_task = start_tasks[start_tasks['task_code'] == task_code]
         end_task = end_tasks[end_tasks['task_code'] == task_code]
