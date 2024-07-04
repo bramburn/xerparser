@@ -45,9 +45,12 @@ class WindowAnalyzer:
 
         mdFile.new_header(level=1, title="Monitored Tasks Report")
 
-        table_headers = ["Task Code", "Task Name", "Planned Start (Start)", "Planned Finish (Start)",
-                         "Planned Start (End)", "Planned Finish (End)", "Finish Date Difference"]
+        table_headers = ["Task Code", "Task Name", "Start (Start)", "Finish (Start)",
+                         "Start (End)", "Finish (End)", "Start Date Difference", "Finish Date Difference"]
         table_data = table_headers.copy()
+
+        def get_date(task, field):
+            return pd.to_datetime(task[field]) if pd.notnull(task[field]) else None
 
         for task_code in self.monitored_tasks:
             start_task = start_window.xer.task_df[start_window.xer.task_df['task_code'] == task_code]
@@ -59,31 +62,53 @@ class WindowAnalyzer:
             start_task = start_task.iloc[0]
             end_task = end_task.iloc[0]
 
-            start_planned_start = self.format_date(start_task['target_start_date']) or "N/A"
-            start_planned_finish = self.format_date(start_task['target_end_date']) or "N/A"
-            end_planned_start = self.format_date(end_task['target_start_date']) or "N/A"
-            end_planned_finish = self.format_date(end_task['target_end_date']) or "N/A"
+            # Get dates for calculations
+            start_start_date = get_date(start_task, 'act_start_date') or get_date(start_task, 'target_start_date')
+            start_finish_date = get_date(start_task, 'act_end_date') or get_date(start_task, 'target_end_date')
+            end_start_date = get_date(end_task, 'act_start_date') or get_date(end_task, 'target_start_date')
+            end_finish_date = get_date(end_task, 'act_end_date') or get_date(end_task, 'target_end_date')
 
-            if start_planned_finish != "N/A" and end_planned_finish != "N/A":
-                finish_diff = (pd.to_datetime(end_task['target_end_date']) -
-                               pd.to_datetime(start_task['target_end_date'])).days
-                finish_diff = f"{finish_diff} days"
-            else:
-                finish_diff = "N/A"
+            # Calculate differences
+            def calculate_difference(date1, date2):
+                if date1 and date2:
+                    diff = (date2 - date1).days
+                    return f"{diff} days"
+                return "N/A"
+
+            start_diff = calculate_difference(start_start_date, end_start_date)
+            finish_diff = calculate_difference(start_finish_date, end_finish_date)
+
+            # Format dates for display
+            def format_display_date(date, is_actual):
+                if pd.isnull(date):
+                    return "N/A"
+                formatted = date.strftime('%Y-%m-%d')
+                return f"{formatted}A" if is_actual else formatted
+
+            start_start_display = format_display_date(start_start_date, pd.notnull(start_task['act_start_date']))
+            start_finish_display = format_display_date(start_finish_date, pd.notnull(start_task['act_end_date']))
+            end_start_display = format_display_date(end_start_date, pd.notnull(end_task['act_start_date']))
+            end_finish_display = format_display_date(end_finish_date, pd.notnull(end_task['act_end_date']))
 
             table_data.extend([
                 task_code,
                 start_task['task_name'],
-                start_planned_start,
-                start_planned_finish,
-                end_planned_start,
-                end_planned_finish,
+                start_start_display,
+                start_finish_display,
+                end_start_display,
+                end_finish_display,
+                start_diff,
                 finish_diff
             ])
 
-        num_rows = len(table_data) // 7  # 7 is the number of columns
-        mdFile.new_table(columns=7, rows=num_rows, text=table_data, text_align='left')
+        num_rows = len(table_data) // 8  # 8 is the new number of columns
+        mdFile.new_table(columns=8, rows=num_rows, text=table_data, text_align='left')
 
+        mdFile.new_paragraph("Note: Dates marked with 'A' indicate actual dates.")
+        mdFile.new_paragraph(
+            "Start Date Difference: The number of days between the start dates in the start and end windows.")
+        mdFile.new_paragraph(
+            "Finish Date Difference: The number of days between the finish dates in the start and end windows.")
     def process_window(self, date: pd.Timestamp, is_end_window: bool) -> WindowXER:
         """
         Process the window based on the given date and window type.
