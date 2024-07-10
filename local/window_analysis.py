@@ -7,11 +7,11 @@ from local.libs.window_xer import WindowAnalyzer
 from xerparser import Xer
 
 date_format = "%Y-%m-%d %H:%M"
-asbuilt_file = r"asbuilt.xer"
+asbuilt_file = r"asbuilt3.xer"
 
 # define the start and end dates for the filter
 start_date = '2023-01-01'  # example start date
-end_date = '2023-01-31'  # example end date
+end_date = '2023-11-30'  # example end date
 split_date = end_date
 monitored_activities = ["HRPMMM1001",
                         "HRPMMM1002",
