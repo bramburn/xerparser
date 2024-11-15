@@ -761,9 +761,28 @@ class WindowAnalyzer:
         start_date = pd.to_datetime(start_date)
         end_date = pd.to_datetime(end_date)
 
-        start_window = self.process_window(start_date, is_end_window=False)
-        end_window = self.process_window(end_date, is_end_window=True)
+        start_window: WindowXER = self.process_window(start_date, is_end_window=False)
+        end_window: WindowXER = self.process_window(end_date, is_end_window=True)
 
         self.generate_markdown_report(start_window, end_window, start_date, end_date)
 
         return start_window, end_window
+
+    def save_xer_file(self, xer: Xer, file_name: str):
+        """
+        Saves the given Xer object to a specified file.
+
+        Args:
+            xer (Xer): The Xer object to be saved.
+            file_name (str): The name of the file where the Xer object will be saved.
+
+        Returns:
+            None
+        """
+        # Construct the full file path
+        full_file_path = os.path.join(self.report_xer_folder_path, file_name)
+
+        # Use the XerFileGenerator to save the Xer object
+        self.xer_generator.build_xer_file(xer, full_file_path)
+
+        print(f"XER file saved as: {full_file_path}")

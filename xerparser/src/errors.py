@@ -87,3 +87,13 @@ def find_xer_errors(tables: dict) -> list[str]:
             f"XER is Missing {invalid_rsrc_count} Resources Assigned to {len(task_rsrc_with_invalid_rsrc)} Task Resources."
         )
     return errors
+
+
+class XERMergeError(Exception):
+    """Exception raised for errors during XER file merging."""
+    pass
+
+
+class XERReportError(Exception):
+    """Exception raised for errors during conflict report generation."""
+    pass
