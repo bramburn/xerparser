@@ -27,7 +27,6 @@ class WindowAnalyzer:
             xer (Xer): The Xer object representing the original XER file.
             report_folder_path (str): The path to the folder where the start window XER files will be saved.
 
-
         Returns:
             None
         """
@@ -37,9 +36,29 @@ class WindowAnalyzer:
         self.monitored_tasks = None
 
     def set_monitored_tasks(self, task_codes: List[str]):
+        """
+        Sets the list of monitored task codes.
+
+        Args:
+            task_codes (List[str]): A list of task codes to be monitored.
+
+        Returns:
+            None
+        """
         self.monitored_tasks = task_codes
 
     def generate_monitored_tasks_report(self, mdFile: MdUtils, start_window: WindowXER, end_window: WindowXER):
+        """
+        Generates a report of monitored tasks comparing their start and end window data.
+
+        Args:
+            mdFile (MdUtils): The Markdown file utility to write the report to.
+            start_window (WindowXER): The starting window data.
+            end_window (WindowXER): The ending window data.
+
+        Returns:
+            None
+        """
         if not self.monitored_tasks:
             return
 
@@ -109,11 +128,12 @@ class WindowAnalyzer:
             "Start Date Difference: The number of days between the start dates in the start and end windows.")
         mdFile.new_paragraph(
             "Finish Date Difference: The number of days between the finish dates in the start and end windows.")
+
     def process_window(self, date: pd.Timestamp, is_end_window: bool) -> WindowXER:
         """
         Process the window based on the given date and window type.
 
-        Parameters:
+        Args:
             date (pd.Timestamp): The date for which the window is being processed.
             is_end_window (bool): A boolean indicating whether it's an end window or not.
 
@@ -136,6 +156,17 @@ class WindowAnalyzer:
         return WindowXER(window_xer, critical_path, file_name)
 
     def filter_tasks(self, tasks_df: pd.DataFrame, start_date: pd.Timestamp, end_date: pd.Timestamp) -> pd.DataFrame:
+        """
+        Filters tasks based on their start and end dates.
+
+        Args:
+            tasks_df (pd.DataFrame): The DataFrame containing task data.
+            start_date (pd.Timestamp): The start date for filtering.
+            end_date (pd.Timestamp): The end date for filtering.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing the filtered tasks.
+        """
         # Convert target_start_date and target_end_date to datetime if they are not
         tasks_df['target_start_date'] = pd.to_datetime(tasks_df['target_start_date'])
         tasks_df['target_end_date'] = pd.to_datetime(tasks_df['target_end_date'])
@@ -147,11 +178,32 @@ class WindowAnalyzer:
             ]
 
     def add_table_of_contents(self, mdFile: MdUtils):
+        """
+        Adds a table of contents to the Markdown file.
+
+        Args:
+            mdFile (MdUtils): The Markdown file utility to write the table of contents to.
+
+        Returns:
+            None
+        """
         mdFile.new_header(level=1, title="Table of Contents")
         mdFile.new_table_of_contents(table_title="Contents", depth=2)
 
     def generate_markdown_report(self, start_window: WindowXER, end_window: WindowXER, start_date: pd.Timestamp,
                                  end_date: pd.Timestamp):
+        """
+        Generates a Markdown report comparing the start and end windows.
+
+        Args:
+            start_window (WindowXER): The starting window data.
+            end_window (WindowXER): The ending window data.
+            start_date (pd.Timestamp): The start date for the report.
+            end_date (pd.Timestamp): The end date for the report.
+
+        Returns:
+            None
+        """
         file_name = os.path.join(self.report_xer_folder_path,
                                  f"window_analysis_report_{start_date.strftime('%Y-%m-%d')}_{end_date.strftime('%Y-%m-%d')}")
 
@@ -175,11 +227,32 @@ class WindowAnalyzer:
         print(f"Markdown report saved as: {mdFile.file_name}.md")
 
     def add_window_period(self, mdFile: MdUtils, start_date: pd.Timestamp, end_date: pd.Timestamp):
+        """
+        Adds the window period information to the Markdown file.
+
+        Args:
+            mdFile (MdUtils): The Markdown file utility to write the window period to.
+            start_date (pd.Timestamp): The start date of the window.
+            end_date (pd.Timestamp): The end date of the window.
+
+        Returns:
+            None
+        """
         mdFile.new_header(level=1, title="Window Period")
         mdFile.new_paragraph(f"Start Date: {start_date.strftime('%Y-%m-%d')}")
         mdFile.new_paragraph(f"End Date: {end_date.strftime('%Y-%m-%d')}")
 
     def format_date(self, date: Union[pd.Timestamp, datetime.date, str, None], suffix: str = '') -> Optional[str]:
+        """
+        Formats a date into a string with a specified format.
+
+        Args:
+            date (Union[pd.Timestamp, datetime.date, str, None]): The date to format.
+            suffix (str): An optional suffix to append to the formatted date.
+
+        Returns:
+            Optional[str]: The formatted date string or None if the date is not valid.
+        """
         if pd.notnull(date):
             try:
                 formatted_date = pd.to_datetime(date).strftime('%Y-%m-%d')
@@ -189,6 +262,17 @@ class WindowAnalyzer:
         return None
 
     def add_critical_path_comparison(self, md_file_utils: MdUtils, start_window: WindowXER, end_window: WindowXER):
+        """
+        Compares the critical paths of the start and end windows and adds the comparison to the Markdown file.
+
+        Args:
+            md_file_utils (MdUtils): The Markdown file utility to write the comparison to.
+            start_window (WindowXER): The starting window data.
+            end_window (WindowXER): The ending window data.
+
+        Returns:
+            None
+        """
         md_file_utils.new_header(level=1, title="Critical Path Comparison")
 
         start_critical_path = start_window.critical_path
@@ -282,13 +366,33 @@ class WindowAnalyzer:
         md_file_utils.new_paragraph(
             f"New critical path from the point of change (only tasks older than start window): {new_critical_path_text}")
 
-
     def calculate_duration(self, start_date: Union[str, pd.Timestamp], end_date: Union[str, pd.Timestamp]) -> int:
+        """
+        Calculates the duration in days between two dates.
+
+        Args:
+            start_date (Union[str, pd.Timestamp]): The start date.
+            end_date (Union[str, pd.Timestamp]): The end date.
+
+        Returns:
+            int: The duration in days between the start and end dates.
+        """
         start = pd.to_datetime(start_date)
         end = pd.to_datetime(end_date)
         return (end - start).days
 
     def generate_monitored_tasks_impact_report(self, mdFile: MdUtils, start_window: WindowXER, end_window: WindowXER):
+        """
+        Generates a report on the impact of monitored tasks on the project.
+
+        Args:
+            mdFile (MdUtils): The Markdown file utility to write the report to.
+            start_window (WindowXER): The starting window data.
+            end_window (WindowXER): The ending window data.
+
+        Returns:
+            None
+        """
         if not self.monitored_tasks:
             return
 
@@ -340,8 +444,19 @@ class WindowAnalyzer:
 
         num_rows = len(table_data) // 7  # 7 is the number of columns
         mdFile.new_table(columns=7, rows=num_rows, text=table_data, text_align='left')
-    def find_impacting_tasks(self, start_window: WindowXER, end_window: WindowXER, monitored_task_code: str) -> List[
-        str]:
+
+    def find_impacting_tasks(self, start_window: WindowXER, end_window: WindowXER, monitored_task_code: str) -> List[str]:
+        """
+        Finds tasks that impact the specified monitored task.
+
+        Args:
+            start_window (WindowXER): The starting window data.
+            end_window (WindowXER): The ending window data.
+            monitored_task_code (str): The code of the monitored task.
+
+        Returns:
+            List[str]: A list of task IDs that impact the monitored task.
+        """
         start_task = start_window.xer.task_df[start_window.xer.task_df['task_code'] == monitored_task_code].iloc[0]
         end_task = end_window.xer.task_df[end_window.xer.task_df['task_code'] == monitored_task_code].iloc[0]
 
@@ -371,7 +486,19 @@ class WindowAnalyzer:
 
     def add_activities_in_period(self, mdFile: MdUtils, start_window: WindowXER, end_window: WindowXER,
                                  start_date: pd.Timestamp, end_date: pd.Timestamp):
+        """
+        Adds a summary of activities that occurred during the specified period to the Markdown file.
 
+        Args:
+            mdFile (MdUtils): The Markdown file utility to write the activities to.
+            start_window (WindowXER): The starting window data.
+            end_window (WindowXER): The ending window data.
+            start_date (pd.Timestamp): The start date for the period.
+            end_date (pd.Timestamp): The end date for the period.
+
+        Returns:
+            None
+        """
         mdFile.new_header(level=1, title="Activities in the Period")
 
         # Original table (unchanged)
@@ -469,6 +596,16 @@ class WindowAnalyzer:
             "* Actual % Complete: Based on the actual progress of the task as of the end date of the analysis window.")
 
     def generate_rapid_completion_report(self, mdFile: MdUtils, end_window: WindowXER):
+        """
+        Generates a report of activities that were rapidly completed.
+
+        Args:
+            mdFile (MdUtils): The Markdown file utility to write the report to.
+            end_window (WindowXER): The ending window data.
+
+        Returns:
+            None
+        """
         mdFile.new_header(level=1, title="Rapidly Completed Activities Report")
 
         # Filter completed activities
@@ -530,7 +667,19 @@ class WindowAnalyzer:
 
         mdFile.new_paragraph(
             "Note: Actual Duration is based on the progress as of the end date of the analysis window.")
+
     def get_activity_row(self, task_code: str, start_tasks: pd.DataFrame, end_tasks: pd.DataFrame) -> list:
+        """
+        Retrieves the activity row data for a specific task code.
+
+        Args:
+            task_code (str): The code of the task to retrieve data for.
+            start_tasks (pd.DataFrame): The DataFrame containing start window tasks.
+            end_tasks (pd.DataFrame): The DataFrame containing end window tasks.
+
+        Returns:
+            list: A list containing the task code, task name, planned data, and actual data.
+        """
         start_task = start_tasks[start_tasks['task_code'] == task_code]
         end_task = end_tasks[end_tasks['task_code'] == task_code]
 
@@ -540,6 +689,15 @@ class WindowAnalyzer:
         return [task_code, actual_data['task_name']] + planned_data + actual_data['actual_data']
 
     def get_planned_data(self, task: pd.DataFrame) -> List[str]:
+        """
+        Retrieves planned data for a given task.
+
+        Args:
+            task (pd.DataFrame): The DataFrame containing task data.
+
+        Returns:
+            List[str]: A list containing planned start, planned end, and planned duration.
+        """
         if not task.empty:
             task = task.iloc[0]
             planned_start = self.format_date(task['target_start_date']) or "(new)"
@@ -554,6 +712,15 @@ class WindowAnalyzer:
             return ["(new)", "(new)", "(new)"]
 
     def get_actual_data(self, task: pd.DataFrame) -> Dict[str, Union[str, List[str]]]:
+        """
+        Retrieves actual data for a given task.
+
+        Args:
+            task (pd.DataFrame): The DataFrame containing task data.
+
+        Returns:
+            Dict[str, Union[str, List[str]]]: A dictionary containing task name and actual data.
+        """
         if not task.empty:
             task = task.iloc[0]
             task_name = task['task_name']
@@ -577,6 +744,16 @@ class WindowAnalyzer:
 
     def generate_window_data_and_progress(self, start_date: Union[str, pd.Timestamp],
                                           end_date: Union[str, pd.Timestamp]) -> Tuple[WindowXER, WindowXER]:
+        """
+        Generates window data and progress for the specified start and end dates.
+
+        Args:
+            start_date (Union[str, pd.Timestamp]): The start date for the window.
+            end_date (Union[str, pd.Timestamp]): The end date for the window.
+
+        Returns:
+            Tuple[WindowXER, WindowXER]: A tuple containing the start and end window data.
+        """
         if self.report_xer_folder_path is None or self.report_xer_folder_path is None:
             logging.error("Both start and end window XER file paths must be set.")
             raise ValueError("Both start and end window XER file paths must be set.")

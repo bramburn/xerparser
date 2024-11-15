@@ -9,6 +9,26 @@ from local.libs.working_day_calculator import WorkingDayCalculator
 
 
 class TotalFloatCPMCalculator:
+    """
+    A class to calculate the total float and critical path for project activities using the Critical Path Method (CPM).
+
+    Attributes:
+        logger (logging.Logger): Logger for the TotalFloatCPMCalculator.
+        working_day_calculator (WorkingDayCalculator): Instance of the working day calculator.
+        xer (Xer): The XER object containing project data.
+        workdays_df (pd.DataFrame): DataFrame containing workdays information.
+        exceptions_df (pd.DataFrame): DataFrame containing exceptions information.
+        graph (nx.DiGraph): Directed graph representing project activities and dependencies.
+        early_start (dict): Dictionary mapping tasks to their early start dates.
+        early_finish (dict): Dictionary mapping tasks to their early finish dates.
+        late_start (dict): Dictionary mapping tasks to their late start dates.
+        late_finish (dict): Dictionary mapping tasks to their late finish dates.
+        total_float (dict): Dictionary mapping tasks to their total float values.
+        critical_path (list): List of tasks that form the critical path.
+        data_date (pd.Timestamp): The date of the last recalculation of the project.
+        cycles (list): List to store cycles detected in the project graph.
+        removed_cycle_tasks (list): List to store tasks that were removed to break cycles.
+    """
 
     def __init__(self, xer_object):
         self.logger = logging.getLogger('TotalFloatCPMCalculator')
